@@ -23,10 +23,10 @@ function useMonitorStatus() {
   return useQuery<MonitorStatus | null>({
     queryKey: ['monitor_status'],
     queryFn: async () => {
+      // VIEW pública (só colunas seguras) — a tabela base não é exposta ao anon.
       const { data, error } = await supabase
-        .from('australia_whv_monitor_config')
+        .from('australia_whv_public_status')
         .select('enabled, last_detected_status, last_detected_raw, last_checked_at, opened_at, country_name, official_url')
-        .eq('singleton_key', 'main')
         .maybeSingle()
       if (error) throw error
       return data as MonitorStatus | null

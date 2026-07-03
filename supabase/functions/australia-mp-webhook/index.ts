@@ -42,7 +42,8 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    // Ativa assinante
+    // Ativa assinante (a notificação de abertura é dirigida pela TABELA subscribers,
+    // não mais por uma lista no config — ver australia-monitor).
     await supabase
       .from('australia_whv_subscribers')
       .upsert({
@@ -53,48 +54,39 @@ Deno.serve(async (req) => {
         paid_at: new Date().toISOString(),
       }, { onConflict: 'phone' })
 
-    // Adiciona phone na lista de notificações WhatsApp do monitor
-    const { data: config } = await supabase
-      .from('australia_whv_monitor_config')
-      .select('whatsapp_target_numbers')
-      .eq('singleton_key', 'main')
-      .maybeSingle()
-
-    if (config) {
-      const numbers: string[] = config.whatsapp_target_numbers ?? []
-      if (!numbers.includes(phone)) {
-        await supabase
-          .from('australia_whv_monitor_config')
-          .update({ whatsapp_target_numbers: [...numbers, phone] })
-          .eq('singleton_key', 'main')
-      }
-    }
-
-    // Envia mensagem de boas-vindas via WhatsApp
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL')
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY')
 
-    if (evolutionUrl && evolutionKey && config) {
-      const { data: configFull } = await supabase
-        .from('australia_whv_monitor_config')
-        .select('whatsapp_instance_name, last_detected_status')
-        .eq('singleton_key', 'main')
-        .maybeSingle()
+    const { data: cfg } = await supabase
+      .from('australia_whv_monitor_config')
+      .select('whatsapp_instance_name, last_detected_status, official_url')
+      .eq('singleton_key', 'main')
+      .maybeSingle()
 
-      if (configFull?.whatsapp_instance_name) {
-        const numberClean = phone.replace('+', '').replace(/\D/g, '')
-        await fetch(`${evolutionUrl}/message/sendText/${configFull.whatsapp_instance_name}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: evolutionKey,
-          },
-          body: JSON.stringify({
-            number: numberClean,
-            text: `✅ *Monitor WHV Austrália ativado!*\n\nSeu número foi adicionado à lista de alertas. Assim que o status mudar para *Aberto*, você receberá uma notificação aqui.\n\nStatus atual: *${configFull.last_detected_status ?? 'Verificando'}*\n\nAcesse o painel: ${Deno.env.get('APP_URL')}/login`,
-            delay: 1000,
-          }),
-        }).catch(console.error)
+    const numberClean = phone.replace('+', '').replace(/\D/g, '')
+    const canSend = !!(evolutionUrl && evolutionKey && cfg?.whatsapp_instance_name)
+    const send = (text: string) =>
+      fetch(`${evolutionUrl}/message/sendText/${cfg!.whatsapp_instance_name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: evolutionKey! },
+        body: JSON.stringify({ number: numberClean, text, delay: 1000 }),
+      }).catch(console.error)
+
+    if (canSend) {
+      const alreadyOpen = cfg!.last_detected_status === 'Open'
+      // Boas-vindas
+      await send(
+        `✅ *Monitor WHV Austrália ativado!*\n\nVocê será avisado aqui no WhatsApp assim que o status mudar para *Aberto*.\n\nStatus atual: *${cfg!.last_detected_status ?? 'Verificando'}*\n\nPainel: ${Deno.env.get('APP_URL')}/login`,
+      )
+      // Se JÁ está aberto, alerta imediato + marca notified_at (não duplica no cron)
+      if (alreadyOpen) {
+        await send(
+          `🚨 *AUSTRÁLIA WHV JÁ ESTÁ ABERTO PARA O BRASIL!*\n\nEntre AGORA no ImmiAccount e tente submeter/pagar a aplicação.\n\nPágina oficial: ${cfg!.official_url ?? ''}`,
+        )
+        await supabase
+          .from('australia_whv_subscribers')
+          .update({ notified_at: new Date().toISOString() })
+          .eq('phone', phone)
       }
     }
 

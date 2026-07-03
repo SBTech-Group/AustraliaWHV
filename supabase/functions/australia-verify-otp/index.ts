@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     // Busca OTP válido
     const { data: otp } = await supabase
       .from('australia_whv_otps')
-      .select('id, code')
+      .select('id, code, attempts')
       .eq('phone', phone)
       .eq('used', false)
       .gt('expires_at', new Date().toISOString())
@@ -32,7 +32,14 @@ Deno.serve(async (req) => {
       return json({ error: 'Código expirado. Solicite um novo.' }, 401)
     }
 
+    // Limite de tentativas: 5 por código (anti brute-force)
+    if ((otp.attempts ?? 0) >= 5) {
+      await supabase.from('australia_whv_otps').update({ used: true }).eq('id', otp.id)
+      return json({ error: 'Muitas tentativas. Solicite um novo código.' }, 429)
+    }
+
     if (otp.code !== code) {
+      await supabase.from('australia_whv_otps').update({ attempts: (otp.attempts ?? 0) + 1 }).eq('id', otp.id)
       return json({ error: 'Código inválido.' }, 401)
     }
 

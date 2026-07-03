@@ -22,21 +22,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ subscriber: null, token: null, loading: true })
 
   const validate = useCallback(async (token: string) => {
-    const { data, error } = await supabase
-      .from('australia_whv_subscribers')
-      .select('id, phone, active, paid_at, session_expires_at')
-      .eq('session_token', token)
-      .eq('active', true)
-      .gt('session_expires_at', new Date().toISOString())
-      .maybeSingle()
+    // Valida via Edge Function (service role) — NUNCA por SELECT anon, senão o
+    // session_token de qualquer assinante ficaria legível publicamente (takeover).
+    const { data, error } = await supabase.functions.invoke('australia-validate-session', {
+      body: { session_token: token },
+    })
 
-    if (error || !data) {
+    const subscriber = (data as { subscriber?: Subscriber } | null)?.subscriber ?? null
+    if (error || !subscriber) {
       localStorage.removeItem(SESSION_KEY)
       setState({ subscriber: null, token: null, loading: false })
       return
     }
 
-    setState({ subscriber: data as Subscriber, token, loading: false })
+    setState({ subscriber, token, loading: false })
   }, [])
 
   useEffect(() => {

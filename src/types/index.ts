@@ -27,3 +27,30 @@ export interface Subscriber {
   paid_at: string
   session_expires_at: string
 }
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+export type WhatsappStatus = 'unknown' | 'created' | 'connecting' | 'open' | 'close' | 'disconnected' | 'error'
+
+export interface MonitorConfig {
+  singleton_key: string
+  enabled: boolean
+  official_url: string
+  country_name: string
+  check_interval_minutes: number
+  whatsapp_instance_name: string
+  whatsapp_status: WhatsappStatus
+  whatsapp_last_checked_at: string | null
+  last_detected_status: DetectedStatus
+  last_detected_raw: string | null
+  last_checked_at: string | null
+  opened_at: string | null
+  notified_at: string | null
+  auto_pause_after_open: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminStats {
+  active: number
+  notified: number
+}
