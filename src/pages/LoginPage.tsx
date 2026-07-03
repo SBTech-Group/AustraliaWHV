@@ -1,0 +1,145 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
+import { toast } from 'sonner'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
+
+function maskPhone(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+type Step = 'phone' | 'otp'
+
+export function LoginPage() {
+  const navigate = useNavigate()
+  const { login } = useAuth()
+  const [step, setStep] = useState<Step>('phone')
+  const [phone, setPhone] = useState('')
+  const [otp, setOtp] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const fullPhone = `+55${phone.replace(/\D/g, '')}`
+
+  const sendOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const digits = phone.replace(/\D/g, '')
+    if (digits.length < 10) {
+      toast.error('Número inválido. Use DDD + número.')
+      return
+    }
+    setLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('australia-send-otp', {
+        body: { phone: fullPhone },
+      })
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Erro ao enviar código')
+      toast.success('Código enviado! Verifique seu WhatsApp.')
+      setStep('otp')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao enviar código.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (otp.length !== 6) {
+      toast.error('Digite o código de 6 dígitos.')
+      return
+    }
+    setLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('australia-verify-otp', {
+        body: { phone: fullPhone, code: otp },
+      })
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Código inválido ou expirado')
+      await login(data.session_token as string)
+      navigate('/monitor')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Código inválido.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <button className="btn-back" onClick={() => step === 'otp' ? setStep('phone') : navigate('/')}>
+          <ArrowLeft size={16} /> Voltar
+        </button>
+
+        <div className="auth-icon">
+          <MessageCircle size={32} strokeWidth={1.5} />
+        </div>
+
+        {step === 'phone' ? (
+          <>
+            <h1>Entrar no painel</h1>
+            <p className="auth-sub">Digite o número de WhatsApp cadastrado no pagamento.</p>
+            <form onSubmit={sendOtp} className="auth-form">
+              <div className="field">
+                <label htmlFor="phone">Número com DDD</label>
+                <div className="phone-input-wrap">
+                  <span className="phone-prefix">🇧🇷 +55</span>
+                  <input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(maskPhone(e.target.value))}
+                    placeholder="(11) 99999-8888"
+                    autoFocus
+                    required
+                  />
+                </div>
+              </div>
+              <button type="submit" className="btn-primary-lg" disabled={loading}>
+                {loading ? <><Loader2 size={16} className="spin" /> Enviando...</> : 'Receber código via WhatsApp'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h1>Código enviado!</h1>
+            <p className="auth-sub">
+              Enviamos um código de 6 dígitos para <strong>{fullPhone}</strong> via WhatsApp.
+            </p>
+            <form onSubmit={verifyOtp} className="auth-form">
+              <div className="field">
+                <label htmlFor="otp">Código de verificação</label>
+                <input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={otp}
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  autoFocus
+                  required
+                  className="otp-input"
+                />
+              </div>
+              <button type="submit" className="btn-primary-lg" disabled={loading}>
+                {loading ? <><Loader2 size={16} className="spin" /> Verificando...</> : 'Entrar'}
+              </button>
+              <button type="button" className="btn-text" onClick={() => { setStep('phone'); setOtp('') }}>
+                Usar outro número
+              </button>
+            </form>
+          </>
+        )}
+
+        <p className="auth-disclaimer">
+          Não tem acesso ainda?{' '}
+          <button className="link" onClick={() => navigate('/comprar')}>Adquira aqui</button>
+        </p>
+      </div>
+    </div>
+  )
+}
