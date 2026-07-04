@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { supabase } from '../lib/supabase'
-import type { Subscriber } from '../types'
+import { supabase } from '../../lib/supabase'
+import type { Subscriber } from '../../types'
 
 const SESSION_KEY = 'whv_session'
 

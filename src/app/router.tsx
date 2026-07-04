@@ -1,15 +1,17 @@
 import { Route, Routes } from 'react-router-dom'
-import { ProtectedRoute } from './components/ProtectedRoute'
-import { AdminRoute } from './components/AdminRoute'
-import { LandingPage } from './pages/LandingPage'
-import { CheckoutPage } from './pages/CheckoutPage'
-import { SuccessPage } from './pages/SuccessPage'
-import { LoginPage } from './pages/LoginPage'
-import { MonitorPage } from './pages/MonitorPage'
-import { AdminLoginPage } from './pages/AdminLoginPage'
-import { AdminPage } from './pages/AdminPage'
+import { ProtectedRoute } from '../core/auth/ProtectedRoute'
+import { AdminRoute } from '../core/auth/AdminRoute'
+import {
+  LandingPage,
+  CheckoutPage,
+  SuccessPage,
+  LoginPage,
+  MonitorPage,
+  AdminLoginPage,
+  AdminPage,
+} from '../modules/monitor'
 
-export default function App() {
+export function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />

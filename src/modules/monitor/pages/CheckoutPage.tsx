@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../../../lib/supabase'
 
 function formatPhone(raw: string) {
   return raw.replace(/\D/g, '')

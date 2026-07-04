@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
     const payment = await res.json() as {
       status: string
       external_reference: string   // phone armazenado na preference
+      payer?: { email?: string; first_name?: string; last_name?: string }
     }
 
     if (payment.status !== 'approved') {
@@ -88,6 +89,35 @@ Deno.serve(async (req) => {
           .update({ notified_at: new Date().toISOString() })
           .eq('phone', phone)
       }
+    }
+
+    // ── Registro no Hub SB Tech (produto modelo SaaS) ─────────────────────────
+    // Best-effort: falha aqui NUNCA deve derrubar a ativação do assinante.
+    // Cria/atualiza cliente + assinatura + saas_conta em admin-hlg.sbtech-group.com/saas.
+    try {
+      const hubUrl = Deno.env.get('HUB_FUNCTIONS_URL')       // https://<hub-ref>.supabase.co/functions/v1
+      const hubToken = Deno.env.get('HUB_PROVISIONING_TOKEN') // = AUSTRALIAWHV_PROVISIONING_TOKEN no Hub
+      if (hubUrl && hubToken) {
+        const nome = [payment.payer?.first_name, payment.payer?.last_name].filter(Boolean).join(' ') || numberClean
+        const email = payment.payer?.email || `${numberClean}@australiawhv.sbtech-group.com`
+        const hubRes = await fetch(`${hubUrl}/hub-register-account`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${hubToken}` },
+          body: JSON.stringify({
+            produto_slug: 'australiawhv',
+            nome,
+            email,
+            telefone: phone,
+            conta_ref: phone,
+            conta_url: `${Deno.env.get('APP_URL')}/monitor`,
+          }),
+        })
+        if (!hubRes.ok) console.error('hub-register-account respondeu', hubRes.status, await hubRes.text())
+      } else {
+        console.error('HUB_FUNCTIONS_URL/HUB_PROVISIONING_TOKEN não configurados — assinante não registrado no Hub')
+      }
+    } catch (err) {
+      console.error('hub-register-account falhou:', err)
     }
 
     return new Response('ok', { headers: corsHeaders })

@@ -2,8 +2,8 @@
 // supabase.functions.invoke anexa o JWT da sessão Supabase Auth (admin) no
 // Authorization automaticamente → a função valida como admin.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '../lib/supabase'
-import type { AdminStats, MonitorConfig, MonitorLog } from '../types'
+import { supabase } from '../../../lib/supabase'
+import type { AdminStats, MonitorConfig, MonitorLog } from '../../../types'
 
 const KEY_CFG = 'admin_monitor_config'
 const KEY_LOGS = 'admin_monitor_logs'

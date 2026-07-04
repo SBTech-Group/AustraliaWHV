@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../../../lib/supabase'
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
@@ -33,7 +33,7 @@ export function AdminLoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-icon"><ShieldCheck size={32} strokeWidth={1.5} /></div>
+        <div className="auth-icon"><ShieldCheck size={32} strokeWidth={1.75} /></div>
         <h1>Admin — Monitor WHV</h1>
         <p className="auth-sub">Acesso restrito ao operador.</p>
         <form onSubmit={submit} className="auth-form">
@@ -46,7 +46,7 @@ export function AdminLoginPage() {
             <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
           <button type="submit" className="btn-primary-lg" disabled={loading}>
-            {loading ? <><Loader2 size={16} className="spin" /> Entrando...</> : 'Entrar'}
+            {loading ? <><Loader2 size={16} strokeWidth={1.75} className="spin" /> Entrando...</> : 'Entrar'}
           </button>
         </form>
       </div>

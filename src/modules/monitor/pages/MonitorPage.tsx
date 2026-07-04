@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Bell, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
-import { supabase } from '../lib/supabase'
-import { useAuth } from '../context/AuthContext'
+import { supabase } from '../../../lib/supabase'
+import { useAuth } from '../../../core/auth/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import type { DetectedStatus, MonitorLog, MonitorStatus } from '../types'
+import type { DetectedStatus, MonitorLog, MonitorStatus } from '../../../types'
 
 const STATUS_META: Record<DetectedStatus, { label: string; color: string; bg: string }> = {
   Open:    { label: 'Aberto',     color: '#4FCB8E', bg: 'rgba(79,203,142,0.12)' },

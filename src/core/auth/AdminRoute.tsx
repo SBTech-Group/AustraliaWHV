@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../../lib/supabase'
 
 // Admin usa Supabase Auth (email/senha) — independente do login do assinante (OTP).
 export function AdminRoute({ children }: { children: ReactNode }) {

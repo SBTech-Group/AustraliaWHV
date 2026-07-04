@@ -3,9 +3,9 @@ import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplug, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../../../lib/supabase'
 import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs } from '../hooks/adminMonitor'
-import type { DetectedStatus } from '../types'
+import type { DetectedStatus } from '../../../types'
 
 const S: Record<string, CSSProperties> = {
   page: { minHeight: '100vh', background: '#0a0a0a', color: '#e8e8e8', fontFamily: 'system-ui, sans-serif' },
@@ -68,8 +68,8 @@ export function AdminPage() {
   return (
     <div style={S.page}>
       <div style={S.bar}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700 }}>🇦🇺 Admin — Monitor WHV</div>
-        <button style={S.btn} onClick={logout}><LogOut size={15} /> Sair</button>
+        <div style={{ fontWeight: 700 }}>Admin — Monitor WHV</div>
+        <button style={S.btn} onClick={logout}><LogOut size={15} strokeWidth={1.75} /> Sair</button>
       </div>
 
       <div style={S.main}>
@@ -117,11 +117,11 @@ export function AdminPage() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
                 onClick={() => run({ action: 'save_config', payload: form }, 'Config salva', 'Salvando…')}>
-                <Save size={15} /> Salvar
+                <Save size={15} strokeWidth={1.75} /> Salvar
               </button>
               <button style={S.btn} disabled={action.isPending}
                 onClick={() => run({ action: 'check_now' }, 'Verificação concluída', 'Verificando…')}>
-                <RefreshCw size={15} /> Verificar agora
+                <RefreshCw size={15} strokeWidth={1.75} /> Verificar agora
               </button>
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
@@ -129,31 +129,31 @@ export function AdminPage() {
                 onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ''))} />
               <button style={S.btn} disabled={action.isPending || !testNumber}
                 onClick={() => run({ action: 'send_test', number: testNumber }, 'Teste enviado', 'Enviando…')}>
-                <Send size={15} /> Testar
+                <Send size={15} strokeWidth={1.75} /> Testar
               </button>
             </div>
           </div>
 
           {/* WhatsApp */}
           <div style={S.card}>
-            <h2 style={{ margin: '0 0 16px', fontSize: 15 }}><Plug size={15} style={{ verticalAlign: 'middle', marginRight: 6, color: '#4FCB8E' }} />WhatsApp (instância)</h2>
+            <h2 style={{ margin: '0 0 16px', fontSize: 15 }}><Plug size={15} strokeWidth={1.75} style={{ verticalAlign: 'middle', marginRight: 6, color: '#4FCB8E' }} />WhatsApp (instância)</h2>
             <div style={{ fontSize: 13, lineHeight: 2 }}>
               <div>Instância: <code>{config?.whatsapp_instance_name ?? '—'}</code></div>
               <div>Conexão: <span style={{ color: waConnected ? '#4FCB8E' : '#888', fontWeight: 600 }}>{config?.whatsapp_status ?? 'unknown'}</span></div>
               <div style={{ color: '#9a9a9a' }}>Última checagem: {fmt(config?.whatsapp_last_checked_at)}</div>
             </div>
             <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'create_instance' }, 'Instância criada/reconciliada', 'Criando…')}><Plug size={15} /> Criar / reconciliar</button>
-              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'state_instance' }, 'Status atualizado', 'Atualizando…')}><RefreshCw size={15} /> Atualizar status</button>
-              <button style={{ ...S.btn, ...S.btnPrimary }} onClick={() => setConnectOpen(true)}><QrCode size={15} /> Conectar</button>
-              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'logout_instance' }, 'Desconectada', 'Desconectando…')}><Unplug size={15} /> Desconectar</button>
+              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'create_instance' }, 'Instância criada/reconciliada', 'Criando…')}><Plug size={15} strokeWidth={1.75} /> Criar / reconciliar</button>
+              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'state_instance' }, 'Status atualizado', 'Atualizando…')}><RefreshCw size={15} strokeWidth={1.75} /> Atualizar status</button>
+              <button style={{ ...S.btn, ...S.btnPrimary }} onClick={() => setConnectOpen(true)}><QrCode size={15} strokeWidth={1.75} /> Conectar</button>
+              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'logout_instance' }, 'Desconectada', 'Desconectando…')}><Unplug size={15} strokeWidth={1.75} /> Desconectar</button>
               <button style={{ ...S.btn, color: '#F26D70' }} disabled={action.isPending}
                 onClick={() => { if (confirm('Excluir a instância da Evolution?')) run({ action: 'delete_instance' }, 'Instância excluída', 'Excluindo…') }}>
-                <Trash2 size={15} /> Excluir
+                <Trash2 size={15} strokeWidth={1.75} /> Excluir
               </button>
             </div>
             <div style={{ marginTop: 14, padding: '8px 12px', background: 'rgba(125,160,232,0.10)', borderRadius: 6, fontSize: 11.5, color: '#9a9a9a', display: 'flex', gap: 8 }}>
-              <Users size={14} /> Ao detectar <b style={{ color: '#e8e8e8' }}>Open</b>, cada assinante ativo recebe 1 alerta (não enviado 2×).
+              <Users size={14} strokeWidth={1.75} /> Ao detectar <b style={{ color: '#e8e8e8' }}>Open</b>, cada assinante ativo recebe 1 alerta (não enviado 2×).
             </div>
           </div>
         </div>
@@ -162,7 +162,7 @@ export function AdminPage() {
         <div style={S.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 15 }}>Logs (últimos 100)</h2>
-            <button style={S.btn} onClick={() => refetchLogs()}><RefreshCw size={15} /> Atualizar</button>
+            <button style={S.btn} onClick={() => refetchLogs()}><RefreshCw size={15} strokeWidth={1.75} /> Atualizar</button>
           </div>
           {isLoading ? <div style={{ color: '#888' }}>Carregando…</div> : logs.length === 0 ? <div style={{ color: '#888' }}>Nenhum log.</div> : (
             <div style={{ overflowX: 'auto' }}>
@@ -230,8 +230,8 @@ function ConnectOverlay({ onClose }: { onClose: () => void }) {
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)' }} onClick={onClose} />
       <div style={{ position: 'relative', width: 380, maxWidth: '90%', background: '#131313', border: '1px solid #2a2a2a', borderRadius: 10, padding: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <b style={{ display: 'flex', gap: 8, alignItems: 'center' }}><QrCode size={18} color="#4FCB8E" /> Conectar WhatsApp</b>
-          <button style={{ ...S.btn, height: 30, padding: '0 8px' }} onClick={onClose}><X size={14} /></button>
+          <b style={{ display: 'flex', gap: 8, alignItems: 'center' }}><QrCode size={18} strokeWidth={1.75} color="#4FCB8E" /> Conectar WhatsApp</b>
+          <button style={{ ...S.btn, height: 30, padding: '0 8px' }} onClick={onClose}><X size={14} strokeWidth={1.75} /></button>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button style={{ ...S.btn, flex: 1, ...(usePairing ? {} : S.btnPrimary) }} onClick={() => setUsePairing(false)}>QR Code</button>
@@ -239,13 +239,13 @@ function ConnectOverlay({ onClose }: { onClose: () => void }) {
         </div>
         {usePairing && <input style={{ ...S.input, marginBottom: 12 }} placeholder="Número com DDI (5511...)" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} />}
         <div style={{ minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d0d0d', borderRadius: 8, padding: 20, textAlign: 'center' }}>
-          {qrState === 'idle' && <button style={{ ...S.btn, ...S.btnPrimary }} onClick={request}><QrCode size={15} /> {usePairing ? 'Gerar pairing' : 'Gerar QR'}</button>}
-          {qrState === 'loading' && <div style={{ color: '#888' }}><RefreshCw size={28} className="spin" /><div>Solicitando…</div></div>}
+          {qrState === 'idle' && <button style={{ ...S.btn, ...S.btnPrimary }} onClick={request}><QrCode size={15} strokeWidth={1.75} /> {usePairing ? 'Gerar pairing' : 'Gerar QR'}</button>}
+          {qrState === 'loading' && <div style={{ color: '#888' }}><RefreshCw size={28} strokeWidth={1.75} className="spin" /><div>Solicitando…</div></div>}
           {qrState === 'ready' && qr && <img src={qr} alt="QR" style={{ width: 200, height: 200, borderRadius: 4 }} />}
           {qrState === 'ready' && pairing && <div><div style={{ fontFamily: 'monospace', fontSize: 26, fontWeight: 700, letterSpacing: '0.15em' }}>{pairing}</div><p style={{ fontSize: 12, color: '#9a9a9a' }}>WhatsApp → Dispositivos vinculados → Vincular com número</p></div>}
-          {qrState === 'expired' && <button style={{ ...S.btn, ...S.btnPrimary }} onClick={request}><RefreshCw size={15} /> Gerar novo</button>}
-          {qrState === 'error' && <button style={S.btn} onClick={request}><RefreshCw size={15} /> Tentar de novo</button>}
-          {qrState === 'connected' && <div style={{ color: '#4FCB8E', fontWeight: 700 }}>✅ Conectado!</div>}
+          {qrState === 'expired' && <button style={{ ...S.btn, ...S.btnPrimary }} onClick={request}><RefreshCw size={15} strokeWidth={1.75} /> Gerar novo</button>}
+          {qrState === 'error' && <button style={S.btn} onClick={request}><RefreshCw size={15} strokeWidth={1.75} /> Tentar de novo</button>}
+          {qrState === 'connected' && <div style={{ color: '#4FCB8E', fontWeight: 700 }}>Conectado!</div>}
         </div>
         <div style={{ marginTop: 14, textAlign: 'right' }}><button style={S.btn} onClick={onClose}>Fechar</button></div>
       </div>
