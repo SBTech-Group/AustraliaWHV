@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
@@ -16,8 +16,9 @@ function maskPhone(value: string) {
 }
 
 export function CheckoutPage() {
-  const navigate = useNavigate()
-  const [phone, setPhone] = useState('')
+  const navigate  = useNavigate()
+  const location  = useLocation()
+  const [phone, setPhone] = useState<string>((location.state as { phone?: string } | null)?.phone ?? '')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
