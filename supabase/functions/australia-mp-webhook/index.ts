@@ -2,13 +2,38 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-signature, x-request-id',
+}
+
+// Valida a origem da notificação MP (Webhooks v2): HMAC-SHA256 do manifest
+// `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` com o MP_WEBHOOK_SECRET.
+async function validSignature(req: Request, dataId: string, secret: string): Promise<boolean> {
+  const xSignature = req.headers.get('x-signature') ?? ''
+  const xRequestId = req.headers.get('x-request-id') ?? ''
+  const parts: Record<string, string> = {}
+  for (const kv of xSignature.split(',')) {
+    const [k, v] = kv.split('=')
+    if (k && v) parts[k.trim()] = v.trim()
+  }
+  const ts = parts['ts']
+  const v1 = parts['v1']
+  if (!ts || !v1) return false
+
+  const manifest = `id:${dataId.toLowerCase()};request-id:${xRequestId};ts:${ts};`
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  )
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(manifest))
+  const hex = [...new Uint8Array(sigBuf)].map(b => b.toString(16).padStart(2, '0')).join('')
+  return hex === v1
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
+    const url = new URL(req.url)
     const body = await req.json() as { type?: string; data?: { id?: string }; action?: string }
 
     // MP envia type=payment quando um pagamento ocorre
@@ -17,6 +42,17 @@ Deno.serve(async (req) => {
     }
 
     const paymentId = String(body.data.id)
+
+    // Valida assinatura antes de processar (rejeita notificações forjadas).
+    const webhookSecret = Deno.env.get('MP_WEBHOOK_SECRET')
+    if (webhookSecret) {
+      const dataId = url.searchParams.get('data.id') ?? paymentId
+      const ok = await validSignature(req, dataId, webhookSecret)
+      if (!ok) {
+        console.error('webhook: assinatura inválida', paymentId)
+        return new Response('invalid signature', { status: 401, headers: corsHeaders })
+      }
+    }
     const mpAccessToken = Deno.env.get('MP_ACCESS_TOKEN')!
 
     // Consulta o pagamento no MP para verificar status e obter phone

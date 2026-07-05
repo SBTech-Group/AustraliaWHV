@@ -1033,3 +1033,25 @@ input { font-family: inherit; }
 .success-icon { margin-bottom: 20px; }
 .success-steps { display: flex; flex-direction: column; gap: 10px; margin: 20px 0; text-align: left; }
 .success-step { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--fg-2); }
+
+/* ── PAYMENT (Mercado Pago Brick + PIX) ──────────────────────────────────── */
+.mp-brick { margin-top: 20px; }
+.pix-qr {
+  width: 220px;
+  height: 220px;
+  margin: 20px auto 12px;
+  display: block;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+}
+.pix-copy { width: 100%; justify-content: center; gap: 8px; }
+.pix-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--fg-3);
+}
