@@ -46,7 +46,7 @@ export function loadMercadoPago(): Promise<MercadoPagoInstance> {
 export interface MercadoPagoInstance {
   bricks(): {
     create(
-      brick: 'payment',
+      brick: 'payment' | 'cardPayment',
       containerId: string,
       settings: Record<string, unknown>,
     ): Promise<{ unmount(): void }>

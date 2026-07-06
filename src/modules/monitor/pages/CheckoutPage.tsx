@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, MessageCircle, Copy, Check } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageCircle, Copy, Check, CreditCard, QrCode } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { loadMercadoPago, MP_AMOUNT, type MercadoPagoInstance } from '../../../lib/mercadopago'
 
-type Step = 'phone' | 'pay' | 'pix'
+type Step = 'phone' | 'method' | 'card' | 'pix'
 
 interface PixData {
   qr_code: string
@@ -28,9 +28,11 @@ export function CheckoutPage() {
   const [step, setStep] = useState<Step>('phone')
   const [pix, setPix] = useState<PixData | null>(null)
   const [copied, setCopied] = useState(false)
+  const [pixLoading, setPixLoading] = useState(false)
 
   const brickRef = useRef<{ unmount(): void } | null>(null)
   const mountedRef = useRef(false)
+  const pollRef = useRef<number | null>(null)
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,46 +42,56 @@ export function CheckoutPage() {
       return
     }
     setFullPhone(`+55${digits}`)
-    setStep('pay')
+    setStep('method')
   }
 
-  // Monta o Payment Brick quando entra na etapa de pagamento.
-  useEffect(() => {
-    if (step !== 'pay' || mountedRef.current) return
-    mountedRef.current = true
+  // ── PIX direto: gera QR na hora, sem pedir e-mail (usa o telefone) ─────────
+  const handlePix = async () => {
+    setPixLoading(true)
+    try {
+      const email = `${fullPhone.replace(/\D/g, '')}@australiawhv.sbtech-group.com`
+      const { data, error } = await supabase.functions.invoke('australia-process-payment', {
+        body: {
+          phone: fullPhone,
+          selectedPaymentMethod: 'pix',
+          formData: { payer: { email } },
+        },
+      })
+      if (error || data?.error || !data?.pix?.qr_code) {
+        throw new Error(data?.error ?? 'Erro ao gerar PIX')
+      }
+      setPix(data.pix as PixData)
+      setStep('pix')
+      startPolling()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao gerar PIX. Tente novamente.')
+    } finally {
+      setPixLoading(false)
+    }
+  }
 
+  // ── Cartão: monta o cardPayment Brick (só formulário de cartão) ────────────
+  useEffect(() => {
+    if (step !== 'card' || mountedRef.current) return
+    mountedRef.current = true
     let cancelled = false
 
     loadMercadoPago()
       .then((mp: MercadoPagoInstance) => {
         if (cancelled) return
-        return mp.bricks().create('payment', 'mp-brick-container', {
-          initialization: {
-            amount: MP_AMOUNT,
-            payer: { email: '' },
-          },
-          customization: {
-            paymentMethods: {
-              creditCard: 'all',
-              bankTransfer: ['pix'],
-              maxInstallments: 1,
-            },
-            visual: { style: { theme: 'default' } },
-          },
+        return mp.bricks().create('cardPayment', 'mp-brick-container', {
+          initialization: { amount: MP_AMOUNT },
+          customization: { paymentMethods: { maxInstallments: 1 } },
           callbacks: {
-            onReady: () => {},
             onError: (error: unknown) => {
               console.error('brick error', error)
-              toast.error('Erro no formulário de pagamento.')
+              toast.error('Erro no formulário de cartão.')
             },
-            onSubmit: ({ selectedPaymentMethod, formData }: {
-              selectedPaymentMethod: string
-              formData: Record<string, unknown>
-            }) => {
+            onSubmit: (formData: Record<string, unknown>) => {
               return new Promise<void>((resolve, reject) => {
                 supabase.functions
                   .invoke('australia-process-payment', {
-                    body: { phone: fullPhone, selectedPaymentMethod, formData },
+                    body: { phone: fullPhone, selectedPaymentMethod: 'credit_card', formData },
                   })
                   .then(({ data, error }) => {
                     if (error || data?.error) {
@@ -87,24 +99,13 @@ export function CheckoutPage() {
                       reject(new Error(data?.error ?? 'erro'))
                       return
                     }
-
                     if (data.status === 'rejected') {
                       toast.error('Pagamento recusado. Verifique os dados do cartão.')
                       reject(new Error('rejected'))
                       return
                     }
-
                     resolve()
-
-                    if (data.type === 'pix') {
-                      setPix(data.pix as PixData)
-                      setStep('pix')
-                      startPolling()
-                    } else if (data.status === 'approved') {
-                      navigate('/sucesso?status=approved')
-                    } else {
-                      navigate('/sucesso?status=pending')
-                    }
+                    navigate(data.status === 'approved' ? '/sucesso?status=approved' : '/sucesso?status=pending')
                   })
                   .catch(err => {
                     toast.error('Falha na conexão. Tente novamente.')
@@ -115,13 +116,8 @@ export function CheckoutPage() {
           },
         })
       })
-      .then(controller => {
-        if (controller) brickRef.current = controller
-      })
-      .catch((err: Error) => {
-        toast.error(err.message)
-        mountedRef.current = false
-      })
+      .then(controller => { if (controller) brickRef.current = controller })
+      .catch((err: Error) => { toast.error(err.message); mountedRef.current = false })
 
     return () => {
       cancelled = true
@@ -135,17 +131,22 @@ export function CheckoutPage() {
   // Polling do status enquanto o cliente paga via PIX.
   const startPolling = () => {
     const started = Date.now()
-    const timer = setInterval(async () => {
-      if (Date.now() - started > 10 * 60 * 1000) { clearInterval(timer); return }
+    pollRef.current = window.setInterval(async () => {
+      if (Date.now() - started > 10 * 60 * 1000) {
+        if (pollRef.current) clearInterval(pollRef.current)
+        return
+      }
       const { data } = await supabase.functions.invoke('australia-payment-status', {
         body: { phone: fullPhone },
       })
       if (data?.status === 'approved') {
-        clearInterval(timer)
+        if (pollRef.current) clearInterval(pollRef.current)
         navigate('/sucesso?status=approved')
       }
     }, 4000)
   }
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   const copyPix = async () => {
     if (!pix?.qr_code) return
@@ -154,13 +155,16 @@ export function CheckoutPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const goBack = () => {
+    if (step === 'phone') return navigate('/')
+    if (step === 'card' || step === 'pix') return setStep('method')
+    return setStep('phone')
+  }
+
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <button
-          className="btn-back"
-          onClick={() => (step === 'phone' ? navigate('/') : setStep('phone'))}
-        >
+        <button className="btn-back" onClick={goBack}>
           <ArrowLeft size={16} /> Voltar
         </button>
 
@@ -199,12 +203,35 @@ export function CheckoutPage() {
           </>
         )}
 
-        {step === 'pay' && (
+        {step === 'method' && (
           <>
             <h1>Pagamento</h1>
             <p className="auth-sub">
               Monitor WHV Austrália — <strong>R$ {MP_AMOUNT.toFixed(2).replace('.', ',')}</strong> · acesso vitalício.
             </p>
+            <div className="pay-methods">
+              <button className="pay-method" onClick={handlePix} disabled={pixLoading}>
+                {pixLoading ? <Loader2 size={22} className="spin" /> : <QrCode size={22} />}
+                <div>
+                  <strong>PIX</strong>
+                  <span>Aprovação na hora</span>
+                </div>
+              </button>
+              <button className="pay-method" onClick={() => setStep('card')}>
+                <CreditCard size={22} />
+                <div>
+                  <strong>Cartão de crédito</strong>
+                  <span>À vista</span>
+                </div>
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 'card' && (
+          <>
+            <h1>Cartão de crédito</h1>
+            <p className="auth-sub">Pagamento à vista · R$ {MP_AMOUNT.toFixed(2).replace('.', ',')}</p>
             <div id="mp-brick-container" className="mp-brick" />
           </>
         )}

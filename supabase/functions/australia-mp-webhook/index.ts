@@ -111,9 +111,15 @@ Deno.serve(async (req) => {
 
     if (canSend) {
       const alreadyOpen = cfg!.last_detected_status === 'Open'
-      // Boas-vindas
+      const appUrl = Deno.env.get('APP_URL')
+      // Boas-vindas + o que o assinante já pode acessar
       await send(
-        `✅ *Monitor WHV Austrália ativado!*\n\nVocê será avisado aqui no WhatsApp assim que o status mudar para *Aberto*.\n\nStatus atual: *${cfg!.last_detected_status ?? 'Verificando'}*\n\nPainel: ${Deno.env.get('APP_URL')}/login`,
+        `✅ *Pagamento confirmado — acesso liberado!*\n\n` +
+        `Você agora é assinante do *Monitor WHV Austrália*. Veja o que já pode fazer:\n\n` +
+        `🔔 *Alerta automático:* assim que a Austrália abrir vagas WHV para o Brasil, você recebe uma mensagem aqui neste WhatsApp — antes de todo mundo.\n\n` +
+        `📊 *Painel em tempo real:* acompanhe o status oficial e o histórico de verificações.\n${appUrl}/login\n\n` +
+        `🔑 *Como entrar:* use este mesmo número (${numberClean}). Enviamos um código por aqui para você acessar.\n\n` +
+        `Status atual da Austrália: *${cfg!.last_detected_status ?? 'Verificando'}*`,
       )
       // Se JÁ está aberto, alerta imediato + marca notified_at (não duplica no cron)
       if (alreadyOpen) {
