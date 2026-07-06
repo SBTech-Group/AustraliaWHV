@@ -83,6 +83,7 @@ export function CheckoutPage() {
           initialization: { amount: MP_AMOUNT },
           customization: { paymentMethods: { maxInstallments: 1 } },
           callbacks: {
+            onReady: () => {},
             onError: (error: unknown) => {
               console.error('brick error', error)
               toast.error('Erro no formulário de cartão.')
