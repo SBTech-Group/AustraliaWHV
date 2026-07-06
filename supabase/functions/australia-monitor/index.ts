@@ -117,6 +117,7 @@ Deno.serve(async (req) => {
       .from('australia_whv_subscribers')
       .select('id, phone')
       .eq('active', true)
+      .or('access_expires_at.is.null,access_expires_at.gt.' + new Date().toISOString())
       .is('notified_at', null)
     const list = subs ?? []
     if (list.length === 0) { await log('info', 'notify', { detected_status: 'Open', message: 'Open detectado — nenhum assinante pendente de notificação.' }); return }

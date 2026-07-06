@@ -17,16 +17,18 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    // Verifica se é assinante ativo
+    // Verifica se é assinante ativo E com acesso não expirado
+    const nowISO = new Date().toISOString()
     const { data: subscriber } = await supabase
       .from('australia_whv_subscribers')
       .select('id, active')
       .eq('phone', phone)
       .eq('active', true)
+      .or('access_expires_at.is.null,access_expires_at.gt.' + nowISO)
       .maybeSingle()
 
     if (!subscriber) {
-      return json({ error: 'Número não encontrado. Verifique se o pagamento foi realizado.' }, 404)
+      return json({ error: 'Acesso não encontrado ou expirado. Verifique o pagamento ou renove.' }, 404)
     }
 
     // Rate limit: no máximo 1 OTP por minuto

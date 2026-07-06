@@ -4,13 +4,8 @@ import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
-
-function maskPhone(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
-  if (digits.length <= 2) return digits
-  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
-}
+import { PhoneInput } from '../../../components/PhoneInput'
+import { DEFAULT_COUNTRY, toE164, type Country } from '../../../lib/countries'
 
 type Step = 'phone' | 'otp'
 
@@ -18,11 +13,12 @@ export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
   const [step, setStep] = useState<Step>('phone')
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY)
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const fullPhone = `+55${phone.replace(/\D/g, '')}`
+  const fullPhone = toE164(country.code, phone)
 
   const sendOtp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,18 +81,15 @@ export function LoginPage() {
             <form onSubmit={sendOtp} className="auth-form">
               <div className="field">
                 <label htmlFor="phone">Número com DDD</label>
-                <div className="phone-input-wrap">
-                  <span className="phone-prefix">🇧🇷 +55</span>
-                  <input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={e => setPhone(maskPhone(e.target.value))}
-                    placeholder="(11) 99999-8888"
-                    autoFocus
-                    required
-                  />
-                </div>
+                <PhoneInput
+                  id="phone"
+                  country={country}
+                  onCountryChange={setCountry}
+                  phone={phone}
+                  onPhoneChange={setPhone}
+                  variant="auth"
+                  autoFocus
+                />
               </div>
               <button type="submit" className="btn-primary-lg" disabled={loading}>
                 {loading ? <><Loader2 size={16} className="spin" /> Enviando...</> : 'Receber código via WhatsApp'}

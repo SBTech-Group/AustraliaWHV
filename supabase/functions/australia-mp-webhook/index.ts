@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { addCiclo, fetchPlan } from '../_shared/plan.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -79,6 +80,18 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
+    // Busca a linha do assinante (full_name/email capturados no checkout).
+    const { data: subscriber } = await supabase
+      .from('australia_whv_subscribers')
+      .select('full_name, email')
+      .eq('phone', phone)
+      .maybeSingle()
+
+    // Assinatura ANUAL: acesso expira em now + ciclo do plano.
+    const { ciclo } = await fetchPlan()
+    const nowISO = new Date().toISOString()
+    const accessExpiresAt = addCiclo(nowISO, ciclo)
+
     // Ativa assinante (a notificação de abertura é dirigida pela TABELA subscribers,
     // não mais por uma lista no config — ver australia-monitor).
     await supabase
@@ -88,7 +101,8 @@ Deno.serve(async (req) => {
         payment_id: paymentId,
         payment_status: 'approved',
         active: true,
-        paid_at: new Date().toISOString(),
+        paid_at: nowISO,
+        access_expires_at: accessExpiresAt,
       }, { onConflict: 'phone' })
 
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL')
@@ -140,8 +154,8 @@ Deno.serve(async (req) => {
       const hubUrl = Deno.env.get('HUB_FUNCTIONS_URL')       // https://<hub-ref>.supabase.co/functions/v1
       const hubToken = Deno.env.get('HUB_PROVISIONING_TOKEN') // = AUSTRALIAWHV_PROVISIONING_TOKEN no Hub
       if (hubUrl && hubToken) {
-        const nome = [payment.payer?.first_name, payment.payer?.last_name].filter(Boolean).join(' ') || numberClean
-        const email = payment.payer?.email || `${numberClean}@australiawhv.sbtech-group.com`
+        const nome = subscriber?.full_name || [payment.payer?.first_name, payment.payer?.last_name].filter(Boolean).join(' ') || numberClean
+        const email = subscriber?.email || payment.payer?.email || `${numberClean}@australiawhv.sbtech-group.com`
         const hubRes = await fetch(`${hubUrl}/hub-register-account`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${hubToken}` },

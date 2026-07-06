@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { fetchPlan } from '../_shared/plan.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,24 +19,39 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { phone, selectedPaymentMethod, formData } = await req.json() as {
+    const { phone, full_name, email, selectedPaymentMethod, formData } = await req.json() as {
       phone?: string
+      full_name?: string
+      email?: string
       selectedPaymentMethod?: string
       formData?: Record<string, unknown>
     }
 
     if (!phone) return json({ error: 'phone obrigatório' }, 400)
+    if (!full_name || !full_name.trim()) return json({ error: 'full_name obrigatório' }, 400)
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) return json({ error: 'email inválido' }, 400)
     if (!formData) return json({ error: 'formData obrigatório' }, 400)
 
     const mpAccessToken = Deno.env.get('MP_ACCESS_TOKEN')!
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const price = parseFloat(Deno.env.get('PRODUCT_PRICE') ?? '49.90')
+    const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
-    const numberClean = phone.replace(/\D/g, '')
+    // Bloqueia recompra: quem já tem acesso ativo (e não expirado) não paga de novo.
+    const { data: existing } = await supabase
+      .from('australia_whv_subscribers')
+      .select('active, access_expires_at')
+      .eq('phone', phone)
+      .maybeSingle()
+    if (existing?.active && (existing.access_expires_at == null || new Date(existing.access_expires_at) > new Date())) {
+      return json({ error: 'Você já possui um acesso ativo.', already_active: true, access_expires_at: existing.access_expires_at ?? null }, 409)
+    }
+
+    // Preço vem do plano (Hub → fallback env). Nunca confia no amount do front.
+    const { price } = await fetchPlan()
+
     const isPix = selectedPaymentMethod === 'bank_transfer' || selectedPaymentMethod === 'pix'
 
     const payer = (formData.payer as Record<string, unknown> | undefined) ?? {}
-    const email = (payer.email as string) || `${numberClean}@australiawhv.sbtech-group.com`
 
     // Backend é a fonte de verdade do valor — nunca confia no amount vindo do front.
     const mpPayment: Record<string, unknown> = {
@@ -80,11 +96,10 @@ Deno.serve(async (req) => {
     }
 
     // Rastreia o assinante como pending — a ativação definitiva ocorre no webhook.
-    const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
     await supabase
       .from('australia_whv_subscribers')
       .upsert(
-        { phone, payment_id: String(payment.id), payment_status: 'pending' },
+        { phone, full_name, email, payment_id: String(payment.id), payment_status: 'pending' },
         { onConflict: 'phone' },
       )
 

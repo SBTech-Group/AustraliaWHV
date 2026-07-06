@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, CheckCircle2, Globe, MessageCircle, Shield, Zap, Clock, X, Check } from 'lucide-react'
 import { Logo } from '../../../components/Logo'
+import { PhoneInput } from '../../../components/PhoneInput'
+import { DEFAULT_COUNTRY, toE164, type Country } from '../../../lib/countries'
+import { usePlan, cicloLabel } from '../../../lib/plan'
 
-const PRICE = import.meta.env.VITE_PRODUCT_PRICE ?? 'R$ 49,90'
 const POOL  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
 /* ── Flip char ───────────────────────────────────────────────────────────── */
@@ -173,17 +175,12 @@ function useScrollReveal() {
   }, [])
 }
 
-/* ── Phone mask ──────────────────────────────────────────────────────────── */
-function maskBR(v: string) {
-  const d = v.replace(/\D/g, '').slice(0, 11)
-  if (d.length <= 2) return d
-  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
-}
-
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export function LandingPage() {
   const navigate   = useNavigate()
+  const { data: plan } = usePlan()
+  const periodo    = cicloLabel(plan.ciclo).replace(/^por\s+/, '/ ')  // 'anual' → '/ ano'
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY)
   const [phone, setPhone] = useState('')
   const lastCheck  = useLastCheck()
   useScrollReveal()
@@ -240,22 +237,25 @@ export function LandingPage() {
           <div className="lp-card-form">
             <div className="lp-card-field">
               <label className="lp-card-label">🇧🇷 Número WhatsApp Brasil</label>
-              <div className="lp-card-input-wrap">
-                <span className="lp-card-pfx">+55</span>
-                <input
-                  type="tel"
-                  placeholder="(11) 99999-8888"
-                  value={phone}
-                  onChange={e => setPhone(maskBR(e.target.value))}
-                />
-              </div>
+              <PhoneInput
+                country={country}
+                onCountryChange={setCountry}
+                phone={phone}
+                onPhoneChange={setPhone}
+                variant="card"
+              />
             </div>
             <button className="lp-card-btn"
-              onClick={() => navigate('/comprar', phone ? { state: { phone } } : undefined)}>
-              Quero ser notificado — {PRICE}
+              onClick={() => {
+                const digits = phone.replace(/\D/g, '')
+                navigate('/comprar', digits
+                  ? { state: { phone: toE164(country.code, digits), phoneDigits: digits, countryIso: country.iso } }
+                  : undefined)
+              }}>
+              Quero ser notificado — {plan.priceLabel}
             </button>
           </div>
-          <p className="lp-card-fine">Pagamento único · Sem mensalidade · Cancele quando quiser</p>
+          <p className="lp-card-fine">Assinatura anual · Cancele quando quiser</p>
         </div>
       </div>
 
@@ -334,7 +334,7 @@ export function LandingPage() {
             { icon: <Clock size={20} strokeWidth={1.75} />,        title: 'A cada 2 minutos',  desc: 'Mais rápido que qualquer monitoramento manual. Nunca para.' },
             { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp direto',   desc: 'Sem app novo. Alerta no mesmo app que você já usa todo dia.' },
             { icon: <Globe size={20} strokeWidth={1.75} />,         title: 'Fonte oficial',     desc: 'Monitoramos direto o immi.homeaffairs.gov.au — nada de intermediários.' },
-            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />,  title: 'Pagamento único',   desc: 'Pague uma vez. Fica na lista até a vaga abrir. Sem mensalidade.' },
+            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />,  title: 'Assinatura anual',  desc: 'Um ano de alertas. Cancele quando quiser, sem multa.' },
             { icon: <Shield size={20} strokeWidth={1.75} />,        title: 'Só o número',       desc: 'Sem cadastro longo. Sem dados bancários armazenados.' },
             { icon: <Bell size={20} strokeWidth={1.75} />,          title: 'Painel online',     desc: 'Acompanhe o status atual e histórico de verificações em tempo real.' },
           ].map((f, i) => (
@@ -351,9 +351,9 @@ export function LandingPage() {
       <section className="section" id="preco">
         <h2 className="section-title" data-reveal>Simples e direto</h2>
         <div className="pricing-card" data-reveal style={{ transitionDelay: '80ms' }}>
-          <div className="pricing-badge">Pagamento único</div>
-          <div className="pricing-price">{PRICE}</div>
-          <p className="pricing-desc">Uma vez. Para sempre. Até o visto abrir.</p>
+          <div className="pricing-badge">Assinatura anual</div>
+          <div className="pricing-price">{plan.priceLabel} <span className="pricing-per">{periodo}</span></div>
+          <p className="pricing-desc">Um ano de monitoramento. Cancele quando quiser.</p>
           <ul className="pricing-list">
             <li><CheckCircle2 size={16} /> Alertas WhatsApp ilimitados</li>
             <li><CheckCircle2 size={16} /> Acesso ao painel de status</li>
@@ -370,7 +370,10 @@ export function LandingPage() {
           <Logo size={20} />
           <span>Monitor WHV Austrália · Não somos afiliados ao governo australiano</span>
         </div>
-        <button className="btn-text" onClick={() => navigate('/login')}>Já sou assinante</button>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <button className="btn-text" onClick={() => navigate('/termos')}>Termos e Privacidade</button>
+          <button className="btn-text" onClick={() => navigate('/login')}>Já sou assinante</button>
+        </div>
       </footer>
     </div>
   )

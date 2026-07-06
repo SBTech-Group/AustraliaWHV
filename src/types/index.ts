@@ -23,8 +23,11 @@ export interface MonitorLog {
 export interface Subscriber {
   id: string
   phone: string
+  full_name: string | null
+  email: string | null
   active: boolean
   paid_at: string
+  access_expires_at: string | null   // NULL = vitalício (assinantes legados)
   session_expires_at: string
 }
 

@@ -9,6 +9,7 @@ import {
   MonitorPage,
   AdminLoginPage,
   AdminPage,
+  TermosPage,
 } from '../modules/monitor'
 
 export function AppRouter() {
@@ -18,6 +19,7 @@ export function AppRouter() {
       <Route path="/comprar" element={<CheckoutPage />} />
       <Route path="/sucesso" element={<SuccessPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/termos" element={<TermosPage />} />
       <Route
         path="/monitor"
         element={

@@ -28,13 +28,19 @@ Deno.serve(async (req) => {
 
     const { data } = await supabase
       .from('australia_whv_subscribers')
-      .select('payment_status, active')
+      .select('payment_status, active, access_expires_at')
       .eq('phone', phone)
       .maybeSingle()
 
+    const active = data?.active ?? false
+    const accessExpiresAt = data?.access_expires_at ?? null
+    const hasActiveAccess = active && (accessExpiresAt == null || new Date(accessExpiresAt) > new Date())
+
     return json({
       status: data?.payment_status ?? 'pending',
-      active: data?.active ?? false,
+      active,
+      access_expires_at: accessExpiresAt,
+      has_active_access: hasActiveAccess,
     })
   } catch (err) {
     console.error(err)

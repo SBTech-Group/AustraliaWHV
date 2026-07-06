@@ -29,9 +29,10 @@ Deno.serve(async (req) => {
 
     const { data } = await supabase
       .from('australia_whv_subscribers')
-      .select('id, phone, active, paid_at, session_expires_at')
+      .select('id, phone, active, paid_at, session_expires_at, access_expires_at, full_name')
       .eq('session_token', session_token)
       .eq('active', true)
+      .or('access_expires_at.is.null,access_expires_at.gt.' + new Date().toISOString())
       .gt('session_expires_at', new Date().toISOString())
       .maybeSingle()
 
