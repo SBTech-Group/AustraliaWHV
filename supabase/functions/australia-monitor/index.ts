@@ -348,10 +348,11 @@ Deno.serve(async (req) => {
       const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
       const phone = String(body.phone ?? '').trim()
       if (!phone) return json({ error: 'Telefone obrigatório' }, 400)
-      await supabase.from('australia_whv_subscribers').update({ active: false, in_group: false }).eq('phone', phone)
+      // 1) tira do grupo (best-effort) 2) APAGA a linha do banco (some da lista)
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
-      if (jid) await removeParticipants(instance, jid, [phone])   // best-effort
-      await log('warning', 'remove_subscriber', { message: `Assinante removido: ${phone}.` })
+      if (jid) await removeParticipants(instance, jid, [phone])
+      await supabase.from('australia_whv_subscribers').delete().eq('phone', phone)
+      await log('warning', 'remove_subscriber', { message: `Assinante removido (grupo + banco): ${phone}.` })
       return json({ ok: true })
     }
 

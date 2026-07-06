@@ -31,27 +31,70 @@ async function validSignature(req: Request, dataId: string, secret: string): Pro
   return hex === v1
 }
 
+// E-mail de boas-vindas (Resend). Best-effort — não derruba a ativação.
+async function sendWelcomeEmail(to: string, nome: string, appUrl: string, phoneDigits: string) {
+  const key = Deno.env.get('RESEND_API_KEY')
+  if (!key || !to) return
+  const from = Deno.env.get('EMAIL_FROM') ?? 'Monitor WHV <noreply@sbtech-group.com>'
+  const primeiro = (nome || '').split(' ')[0] || 'Olá'
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1a1a">
+      <h2 style="color:#2e7d52">✅ Assinatura confirmada — bem-vindo(a)!</h2>
+      <p>${primeiro}, seu acesso ao <strong>Monitor WHV Austrália</strong> está liberado.</p>
+      <p><strong>Como acessar o painel:</strong></p>
+      <ol>
+        <li>Acesse <a href="${appUrl}/login">${appUrl}/login</a></li>
+        <li>Informe este mesmo WhatsApp: <strong>${phoneDigits}</strong></li>
+        <li>Você recebe um código por WhatsApp e entra no painel.</li>
+      </ol>
+      <p style="margin:24px 0">
+        <a href="${appUrl}/login" style="background:#2e7d52;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold">Acessar o painel →</a>
+      </p>
+      <p>👥 Você também foi adicionado ao nosso <strong>grupo de alertas no WhatsApp</strong> — é lá que avisamos assim que a Austrália abrir vagas WHV para o Brasil.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+      <p style="font-size:12px;color:#888">Monitor WHV Austrália · Não somos afiliados ao governo australiano.</p>
+    </div>`
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to, subject: 'Acesso liberado — Monitor WHV Austrália', html }),
+  }).then(() => {}, (e) => console.error('resend', e))
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  )
+  // Log de diagnóstico do webhook (aparece em /admin → Logs, action=webhook).
+  const wlog = (level: string, message: string, details: Record<string, unknown> = {}) =>
+    supabase.from('australia_whv_monitor_logs').insert({ level, action: 'webhook', message, details }).then(() => {}, () => {})
+
   try {
     const url = new URL(req.url)
-    const body = await req.json() as { type?: string; data?: { id?: string }; action?: string }
+    const rawBody = await req.text()
+    let body: { type?: string; data?: { id?: string }; action?: string } = {}
+    try { body = rawBody ? JSON.parse(rawBody) : {} } catch { /* IPN pode não ter body JSON */ }
 
-    // MP envia type=payment quando um pagamento ocorre
-    if (body.type !== 'payment' || !body.data?.id) {
-      return new Response('ok', { headers: corsHeaders })
+    // paymentId: body (Webhooks v2) OU query (?type=payment&data.id= | ?topic=payment&id=)
+    const type = body.type ?? url.searchParams.get('type') ?? url.searchParams.get('topic')
+    const paymentId = String(body.data?.id ?? url.searchParams.get('data.id') ?? url.searchParams.get('id') ?? '')
+
+    if (type !== 'payment' || !paymentId) {
+      return new Response('ok', { headers: corsHeaders })   // evento irrelevante — ignora
     }
 
-    const paymentId = String(body.data.id)
-
-    // Valida assinatura antes de processar (rejeita notificações forjadas).
+    // Assinatura HMAC: só exige quando o MP realmente envia o header x-signature.
+    // Notificações por-pagamento (sem webhook no dashboard MP) NÃO são assinadas —
+    // nesse caso a re-consulta na API do MP abaixo já garante autenticidade
+    // (só um payment_id real e aprovado DA NOSSA conta passa).
     const webhookSecret = Deno.env.get('MP_WEBHOOK_SECRET')
-    if (webhookSecret) {
+    if (webhookSecret && req.headers.get('x-signature')) {
       const dataId = url.searchParams.get('data.id') ?? paymentId
-      const ok = await validSignature(req, dataId, webhookSecret)
-      if (!ok) {
-        console.error('webhook: assinatura inválida', paymentId)
+      if (!(await validSignature(req, dataId, webhookSecret))) {
+        await wlog('warning', `Webhook rejeitado: assinatura inválida (payment ${paymentId}).`)
         return new Response('invalid signature', { status: 401, headers: corsHeaders })
       }
     }
@@ -61,7 +104,10 @@ Deno.serve(async (req) => {
     const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
       headers: { Authorization: `Bearer ${mpAccessToken}` },
     })
-    if (!res.ok) return new Response('MP fetch failed', { status: 502 })
+    if (!res.ok) {
+      await wlog('error', `Falha ao consultar pagamento ${paymentId} no MP.`, { http_status: res.status })
+      return new Response('MP fetch failed', { status: 502 })
+    }
 
     const payment = await res.json() as {
       status: string
@@ -70,16 +116,13 @@ Deno.serve(async (req) => {
     }
 
     if (payment.status !== 'approved') {
+      await wlog('info', `Webhook ${paymentId}: status "${payment.status}" (ignorado — não aprovado).`)
       return new Response('payment not approved', { headers: corsHeaders })
     }
 
     const phone = payment.external_reference
-    if (!phone) return new Response('no phone in external_reference', { status: 400 })
-
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
+    if (!phone) { await wlog('error', `Webhook ${paymentId}: sem phone (external_reference).`); return new Response('no phone in external_reference', { status: 400 }) }
+    await wlog('success', `Pagamento aprovado (${paymentId}) — ativando assinante ${phone}.`)
 
     // Busca a linha do assinante (full_name/email capturados no checkout).
     const { data: subscriber } = await supabase
@@ -166,6 +209,11 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── E-mail de boas-vindas (com link + como acessar) ───────────────────────
+    const welcomeEmail = subscriber?.email || payment.payer?.email || ''
+    const welcomeNome = subscriber?.full_name || [payment.payer?.first_name, payment.payer?.last_name].filter(Boolean).join(' ') || ''
+    await sendWelcomeEmail(welcomeEmail, welcomeNome, Deno.env.get('APP_URL') ?? '', numberClean)
+
     // ── Registro no Hub SB Tech (produto modelo SaaS) ─────────────────────────
     // Best-effort: falha aqui NUNCA deve derrubar a ativação do assinante.
     // Cria/atualiza cliente + assinatura + saas_conta em admin-hlg.sbtech-group.com/saas.
@@ -187,12 +235,18 @@ Deno.serve(async (req) => {
             conta_url: `${Deno.env.get('APP_URL')}/monitor`,
           }),
         })
-        if (!hubRes.ok) console.error('hub-register-account respondeu', hubRes.status, await hubRes.text())
+        if (!hubRes.ok) {
+          const txt = await hubRes.text()
+          console.error('hub-register-account respondeu', hubRes.status, txt)
+          await wlog('error', `Hub não registrou assinante (HTTP ${hubRes.status}).`, { body: txt.slice(0, 300) })
+        } else {
+          await wlog('success', `Assinante registrado no Hub (assinatura + SaaS): ${phone}.`)
+        }
       } else {
-        console.error('HUB_FUNCTIONS_URL/HUB_PROVISIONING_TOKEN não configurados — assinante não registrado no Hub')
+        await wlog('warning', 'HUB_FUNCTIONS_URL/HUB_PROVISIONING_TOKEN não configurados — assinante NÃO registrado no Hub.')
       }
     } catch (err) {
-      console.error('hub-register-account falhou:', err)
+      await wlog('error', `Falha ao registrar no Hub: ${String(err)}`)
     }
 
     return new Response('ok', { headers: corsHeaders })
