@@ -153,11 +153,11 @@ function AnimBoard({ lastCheck }: { lastCheck: string }) {
   )
 }
 
-/* ── Last-check counter (resets at 120s = 2 min interval) ───────────────── */
+/* ── Last-check counter (resets at 60s = 1 min interval) ────────────────── */
 function useLastCheck() {
-  const [s, setS] = useState(23)
+  const [s, setS] = useState(12)
   useEffect(() => {
-    const iv = setInterval(() => setS(x => (x >= 119 ? 0 : x + 1)), 1000)
+    const iv = setInterval(() => setS(x => (x >= 59 ? 0 : x + 1)), 1000)
     return () => clearInterval(iv)
   }, [])
   return s < 60 ? `${s}s atrás` : `${Math.floor(s / 60)}m ${s % 60}s atrás`
@@ -310,7 +310,7 @@ export function LandingPage() {
         <h2 className="section-title" data-reveal>Como funciona</h2>
         <div className="steps">
           {[
-            { icon: <Globe size={24} strokeWidth={1.75} />,        title: 'Monitoramento automático', desc: 'Verificamos o site oficial australiano a cada 2 minutos, 24h por dia.', d: '0ms' },
+            { icon: <Globe size={24} strokeWidth={1.75} />,        title: 'Monitoramento automático', desc: 'Verificamos o site oficial australiano minuto a minuto, 24h por dia.', d: '0ms' },
             { icon: <Zap size={24} strokeWidth={1.75} />,          title: 'Detecção em segundos',    desc: 'Assim que a vaga aparece, nosso sistema identifica e dispara o alerta.', d: '120ms' },
             { icon: <MessageCircle size={24} strokeWidth={1.75} />, title: 'WhatsApp na hora',        desc: 'Link direto para o site oficial. Você aplica antes de todo mundo.', d: '240ms' },
           ].map((s, i) => (
@@ -331,7 +331,7 @@ export function LandingPage() {
         <h2 className="section-title" data-reveal>Por que o Monitor WHV?</h2>
         <div className="features">
           {[
-            { icon: <Clock size={20} strokeWidth={1.75} />,        title: 'A cada 2 minutos',  desc: 'Mais rápido que qualquer monitoramento manual. Nunca para.' },
+            { icon: <Clock size={20} strokeWidth={1.75} />,        title: 'Minuto a minuto',  desc: 'Mais rápido que qualquer monitoramento manual. Nunca para.' },
             { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp direto',   desc: 'Sem app novo. Alerta no mesmo app que você já usa todo dia.' },
             { icon: <Globe size={20} strokeWidth={1.75} />,         title: 'Fonte oficial',     desc: 'Monitoramos direto o immi.homeaffairs.gov.au — nada de intermediários.' },
             { icon: <CheckCircle2 size={20} strokeWidth={1.75} />,  title: 'Assinatura anual',  desc: 'Um ano de alertas. Cancele quando quiser, sem multa.' },
@@ -357,7 +357,7 @@ export function LandingPage() {
           <ul className="pricing-list">
             <li><CheckCircle2 size={16} /> Alertas WhatsApp ilimitados</li>
             <li><CheckCircle2 size={16} /> Acesso ao painel de status</li>
-            <li><CheckCircle2 size={16} /> Verificações a cada 2 minutos</li>
+            <li><CheckCircle2 size={16} /> Verificação minuto a minuto</li>
             <li><CheckCircle2 size={16} /> Monitoramento 24h por dia</li>
           </ul>
           <button className="btn-primary-lg" onClick={() => navigate('/comprar')}>Começar agora</button>

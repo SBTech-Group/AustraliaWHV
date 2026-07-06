@@ -58,6 +58,7 @@ Deno.serve(async (req) => {
       ...formData,
       transaction_amount: price,
       description: 'Monitor WHV Austrália — Alertas WhatsApp',
+      statement_descriptor: Deno.env.get('MP_STATEMENT_DESCRIPTOR') ?? 'SBTECH',  // texto na fatura do cartão
       external_reference: phone,
       notification_url: `${supabaseUrl}/functions/v1/australia-mp-webhook`,
       metadata: { phone },

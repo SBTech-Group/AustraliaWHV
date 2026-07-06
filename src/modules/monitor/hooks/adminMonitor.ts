@@ -3,10 +3,12 @@
 // Authorization automaticamente → a função valida como admin.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../../lib/supabase'
-import type { AdminStats, MonitorConfig, MonitorLog } from '../../../types'
+import type { AdminStats, AdminSubscriber, MonitorConfig, MonitorLog, WhatsappGroup } from '../../../types'
 
 const KEY_CFG = 'admin_monitor_config'
 const KEY_LOGS = 'admin_monitor_logs'
+const KEY_SUBS = 'admin_subscribers'
+const KEY_GROUPS = 'admin_groups'
 
 async function invoke<T = Record<string, unknown>>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke('australia-monitor', { body })
@@ -31,6 +33,25 @@ export function useAdminLogs() {
   })
 }
 
+// Assinantes (tabela de gestão) — poll 20s.
+export function useSubscribers() {
+  return useQuery({
+    queryKey: [KEY_SUBS],
+    queryFn: async () => (await invoke<{ subscribers: AdminSubscriber[] }>({ action: 'list_subscribers' })).subscribers ?? [],
+    refetchInterval: 20_000,
+  })
+}
+
+// Grupos da Evolution — só busca quando o seletor é aberto (enabled); mudam raramente.
+export function useGroups(enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY_GROUPS],
+    queryFn: async () => (await invoke<{ groups: WhatsappGroup[] }>({ action: 'list_groups' })).groups ?? [],
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
 export function useAdminAction() {
   const qc = useQueryClient()
   return useMutation({
@@ -38,6 +59,7 @@ export function useAdminAction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY_CFG] })
       qc.invalidateQueries({ queryKey: [KEY_LOGS] })
+      qc.invalidateQueries({ queryKey: [KEY_SUBS] })
     },
   })
 }

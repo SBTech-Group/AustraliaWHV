@@ -38,14 +38,14 @@ export function SuccessPage() {
             </div>
             <h1>Tudo certo! 🎉</h1>
             <p className="auth-sub">
-              Pagamento confirmado. Você receberá uma mensagem de boas-vindas no WhatsApp em breve.
+              Pagamento confirmado. Você foi adicionado ao nosso grupo de alertas no WhatsApp — confira seu WhatsApp.
               <br /><br />
-              Assim que a Austrália abrir vagas WHV, você será um dos primeiros a saber.
+              É no grupo que avisamos, assim que a Austrália abrir vagas WHV, você será um dos primeiros a saber.
             </p>
             <div className="success-steps">
               <div className="success-step">
                 <MessageCircle size={18} style={{ color: '#4FCB8E' }} />
-                <span>Aguarde a mensagem de confirmação no WhatsApp</span>
+                <span>Você foi adicionado ao nosso grupo de alertas no WhatsApp — confira seu WhatsApp</span>
               </div>
               <div className="success-step">
                 <CheckCircle2 size={18} style={{ color: '#E2BE6A' }} />

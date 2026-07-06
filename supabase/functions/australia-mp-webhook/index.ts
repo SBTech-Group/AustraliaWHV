@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { addCiclo, fetchPlan } from '../_shared/plan.ts'
+import { addParticipants, groupInviteUrl, sendText } from '../_shared/evolution.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -110,34 +111,52 @@ Deno.serve(async (req) => {
 
     const { data: cfg } = await supabase
       .from('australia_whv_monitor_config')
-      .select('whatsapp_instance_name, last_detected_status, official_url')
+      .select('whatsapp_instance_name, last_detected_status, official_url, whatsapp_group_jid, whatsapp_group_name, whatsapp_group_invite_url')
       .eq('singleton_key', 'main')
       .maybeSingle()
 
     const numberClean = phone.replace('+', '').replace(/\D/g, '')
-    const canSend = !!(evolutionUrl && evolutionKey && cfg?.whatsapp_instance_name)
-    const send = (text: string) =>
-      fetch(`${evolutionUrl}/message/sendText/${cfg!.whatsapp_instance_name}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: evolutionKey! },
-        body: JSON.stringify({ number: numberClean, text, delay: 1000 }),
-      }).catch(console.error)
+    const instance = cfg?.whatsapp_instance_name
+    const canSend = !!(evolutionUrl && evolutionKey && instance)
+
+    // Auto-add ao GRUPO de alertas (novo modelo: o alerta de abertura vai p/ o
+    // grupo — não mais 1 DM por assinante). Marca in_group conforme o resultado.
+    let added = false
+    if (instance && cfg?.whatsapp_group_jid) {
+      const add = await addParticipants(instance, String(cfg.whatsapp_group_jid), [numberClean])
+      added = add.ok
+      await supabase
+        .from('australia_whv_subscribers')
+        .update({ in_group: add.ok, group_added_at: add.ok ? nowISO : null })
+        .eq('phone', phone)
+    }
 
     if (canSend) {
       const alreadyOpen = cfg!.last_detected_status === 'Open'
       const appUrl = Deno.env.get('APP_URL')
-      // Boas-vindas + o que o assinante já pode acessar
-      await send(
+      // Linha do grupo: adicionado ok / convite (fallback) / genérica.
+      const groupName = String(cfg!.whatsapp_group_name ?? '')
+      let invite = cfg!.whatsapp_group_invite_url ? String(cfg!.whatsapp_group_invite_url) : ''
+      if (!added && !invite && cfg!.whatsapp_group_jid) {
+        invite = (await groupInviteUrl(instance!, String(cfg!.whatsapp_group_jid))) ?? ''
+      }
+      const groupLine = added
+        ? `👥 Você foi adicionado ao nosso *grupo de alertas* (${groupName}). É lá que avisamos quando a Austrália abrir — fique de olho no grupo.`
+        : invite
+          ? `👥 Entre no nosso *grupo de alertas* (onde avisamos a abertura): ${invite}\n(não consegui te adicionar automaticamente — toque no link para entrar).`
+          : `👥 Em breve você será adicionado ao nosso *grupo de alertas* — é lá que avisamos quando a Austrália abrir.`
+      // Boas-vindas + o que o assinante já pode acessar (o alerta agora é no GRUPO)
+      await sendText(instance!, numberClean,
         `✅ *Pagamento confirmado — acesso liberado!*\n\n` +
         `Você agora é assinante do *Monitor WHV Austrália*. Veja o que já pode fazer:\n\n` +
-        `🔔 *Alerta automático:* assim que a Austrália abrir vagas WHV para o Brasil, você recebe uma mensagem aqui neste WhatsApp — antes de todo mundo.\n\n` +
+        `${groupLine}\n\n` +
         `📊 *Painel em tempo real:* acompanhe o status oficial e o histórico de verificações.\n${appUrl}/login\n\n` +
         `🔑 *Como entrar:* use este mesmo número (${numberClean}). Enviamos um código por aqui para você acessar.\n\n` +
         `Status atual da Austrália: *${cfg!.last_detected_status ?? 'Verificando'}*`,
       )
       // Se JÁ está aberto, alerta imediato + marca notified_at (não duplica no cron)
       if (alreadyOpen) {
-        await send(
+        await sendText(instance!, numberClean,
           `🚨 *AUSTRÁLIA WHV JÁ ESTÁ ABERTO PARA O BRASIL!*\n\nEntre AGORA no ImmiAccount e tente submeter/pagar a aplicação.\n\nPágina oficial: ${cfg!.official_url ?? ''}`,
         )
         await supabase

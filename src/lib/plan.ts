@@ -53,7 +53,7 @@ export function usePlan() {
   return useQuery({
     queryKey: ['plan'],
     queryFn: fetchPlan,
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,   // preço vem do Hub; reflete alterações em ~1min
     initialData: FALLBACK,
   })
 }

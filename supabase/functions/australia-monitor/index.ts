@@ -1,5 +1,5 @@
-// australia-monitor — motor do produto (scrape + notificação por assinante) e
-// ações de ADMIN (config + instância WhatsApp).
+// australia-monitor — motor do produto (scrape + alerta no GRUPO WhatsApp) e
+// ações de ADMIN (config + instância + grupo + assinantes).
 //
 // Auth:
 //   - Cron: header x-cron-secret == AUSTRALIA_SAAS_CRON_SECRET → só check_now.
@@ -7,13 +7,14 @@
 //     conta Supabase Auth → qualquer getUser() válido = admin. ADMIN_EMAILS (csv)
 //     opcional restringe ainda mais.
 //
-// Notificação: ao detectar Open, envia 1 msg para CADA assinante ativo com
-// notified_at nulo (throttle) e marca notified_at NA LINHA DO ASSINANTE. Sem
-// rajada, sem single-fire global — quem entra depois também é avisado.
+// Notificação: ao detectar Open, posta 1 ÚNICA mensagem no grupo WhatsApp
+// (anti-ban). Novos pagantes entram no grupo automaticamente (webhook/admin).
 //
 // Deploy: supabase functions deploy australia-monitor --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { fetchGroups, groupInviteUrl, addParticipants, removeParticipants, sendText } from '../_shared/evolution.ts'
+import { addCiclo, fetchPlan } from '../_shared/plan.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -24,8 +25,6 @@ const corsHeaders = {
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-const NOTIFY_THROTTLE_MS = 1200   // intervalo entre envios (anti-ban básico)
 
 type DetectedStatus = 'Open' | 'Closed' | 'Paused' | 'Unknown'
 
@@ -102,38 +101,19 @@ Deno.serve(async (req) => {
     return (data ?? {}) as Record<string, unknown>
   }
 
-  async function sendText(instance: string, number: string, text: string) {
-    return await evoFetch(`/message/sendText/${instance}`, { method: 'POST', body: JSON.stringify({ number, text }) })
-  }
   async function connectionState(instance: string) {
     const res = await evoFetch(`/instance/connectionState/${instance}`)
     const raw = res.data as Record<string, any>
     return { ok: res.ok, status: mapEvoStatus(String(raw?.instance?.state ?? raw?.state ?? 'unknown')), rawState: String(raw?.instance?.state ?? raw?.state ?? 'unknown') }
   }
 
-  // Notifica 1× cada assinante ativo ainda não notificado (throttle). Idempotente.
-  async function notifyOpenSubscribers(instance: string, url: string) {
-    const { data: subs } = await supabase
-      .from('australia_whv_subscribers')
-      .select('id, phone')
-      .eq('active', true)
-      .or('access_expires_at.is.null,access_expires_at.gt.' + new Date().toISOString())
-      .is('notified_at', null)
-    const list = subs ?? []
-    if (list.length === 0) { await log('info', 'notify', { detected_status: 'Open', message: 'Open detectado — nenhum assinante pendente de notificação.' }); return }
-    let ok = 0
-    for (const s of list) {
-      const number = String(s.phone).replace(/\D/g, '')
-      const sent = await sendText(instance, number, alertMessage(url))
-      if (sent.ok) {
-        await supabase.from('australia_whv_subscribers').update({ notified_at: new Date().toISOString() }).eq('id', s.id)
-        ok++
-      } else {
-        await log('error', 'notify', { detected_status: 'Open', message: `Falha ao alertar ${s.phone}.`, http_status: sent.status, details: { evo: sent.data } })
-      }
-      await sleep(NOTIFY_THROTTLE_MS)
-    }
-    await log('success', 'notify', { detected_status: 'Open', message: `Alertas enviados: ${ok}/${list.length} assinante(s).` })
+  // Posta 1 ÚNICA mensagem de alerta no grupo WhatsApp (anti-ban).
+  async function notifyOpenGroup(instance: string, cfg: Record<string, unknown>, url: string) {
+    const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+    if (!jid) { await log('warning', 'notify', { detected_status: 'Open', message: 'Grupo não configurado — alerta NÃO enviado. Configure o grupo no /admin.' }); return }
+    const sent = await sendText(instance, jid, alertMessage(url))
+    if (sent.ok) await log('success', 'notify', { detected_status: 'Open', message: 'Alerta postado no grupo WhatsApp.' })
+    else await log('error', 'notify', { detected_status: 'Open', message: 'Falha ao postar alerta no grupo.', http_status: sent.status, details: { evo: sent.data } })
   }
   function runInBackground(p: Promise<unknown>) {
     const g = p.catch((e) => log('error', 'notify', { message: `Erro na notificação: ${String(e)}` }))
@@ -167,9 +147,9 @@ Deno.serve(async (req) => {
 
     if (detected === 'Open') {
       if (!cfg.opened_at) patch.opened_at = now
-      if (!cfg.notified_at) patch.notified_at = now   // marca 1º Open (exibição); notificação é por assinante
+      if (!cfg.notified_at) patch.notified_at = now   // marca 1º Open (exibição); alerta vai p/ o grupo
       await patchConfig(patch)
-      runInBackground(notifyOpenSubscribers(instance, url))
+      runInBackground(notifyOpenGroup(instance, cfg, url))
       return { detected, notifying: true }
     }
     await patchConfig(patch)
@@ -208,17 +188,20 @@ Deno.serve(async (req) => {
     // ── Admin ────────────────────────────────────────────────────────────────
     if (action === 'get_config') {
       const cfg = await getConfig()
-      const [{ count: activeCount }, { count: notifiedCount }] = await Promise.all([
+      const nowISO = new Date().toISOString()
+      const [{ count: activeCount }, { count: notifiedCount }, { count: inGroupCount }, { count: overdueCount }] = await Promise.all([
         supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true),
         supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).not('notified_at', 'is', null),
+        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).eq('in_group', true),
+        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).not('access_expires_at', 'is', null).lt('access_expires_at', nowISO),
       ])
-      return json({ config: cfg, stats: { active: activeCount ?? 0, notified: notifiedCount ?? 0 } })
+      return json({ config: cfg, stats: { active: activeCount ?? 0, notified: notifiedCount ?? 0, in_group: inGroupCount ?? 0, overdue: overdueCount ?? 0 } })
     }
 
     if (action === 'save_config') {
       const p = (body.payload ?? {}) as Record<string, unknown>
       const patch: Record<string, unknown> = {}
-      for (const k of ['enabled', 'country_name', 'check_interval_minutes', 'whatsapp_instance_name', 'auto_pause_after_open'] as const) {
+      for (const k of ['enabled', 'country_name', 'check_interval_minutes', 'whatsapp_instance_name'] as const) {
         if (k in p) patch[k] = p[k]
       }
       if ('check_interval_minutes' in patch) {
@@ -292,6 +275,100 @@ Deno.serve(async (req) => {
       if (!sent.ok) { await log('error', 'whatsapp_test', { message: 'Falha no teste.', http_status: sent.status, details: { evo: sent.data } }); return json({ error: `Evolution: ${JSON.stringify(sent.data)}` }, 502) }
       await log('success', 'whatsapp_test', { message: `Teste enviado para ${number}.` })
       return json({ success: true })
+    }
+
+    // ── Grupo WhatsApp ─────────────────────────────────────────────────────────
+    if (action === 'list_groups') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const g = await fetchGroups(instance)
+      if (!g.ok) { await log('error', 'list_groups', { message: 'Falha ao listar grupos.', details: { evo: g.data } }); return json({ error: 'Falha ao listar grupos' }, 502) }
+      await log('info', 'list_groups', { message: `${g.groups.length} grupo(s) carregado(s).` })
+      return json({ groups: g.groups })
+    }
+
+    if (action === 'set_group') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const group_jid = String(body.group_jid ?? '').trim()
+      const group_name = String(body.group_name ?? '').trim()
+      if (!group_jid) return json({ error: 'group_jid obrigatório' }, 400)
+      let out = await patchConfig({ whatsapp_group_jid: group_jid, whatsapp_group_name: group_name })
+      const invite = await groupInviteUrl(instance, group_jid)
+      if (invite) out = await patchConfig({ whatsapp_group_invite_url: invite })
+      await log('success', 'set_group', { message: `Grupo definido: ${group_name}` })
+      return json({ config: out })
+    }
+
+    if (action === 'refresh_invite') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+      if (!jid) return json({ error: 'Nenhum grupo definido' }, 400)
+      const invite = await groupInviteUrl(instance, jid)
+      await patchConfig({ whatsapp_group_invite_url: invite })
+      await log('info', 'refresh_invite', { message: invite ? 'Convite do grupo atualizado.' : 'Não foi possível obter o convite do grupo.' })
+      return json({ invite_url: invite })
+    }
+
+    // ── Assinantes ─────────────────────────────────────────────────────────────
+    if (action === 'list_subscribers') {
+      const { data } = await supabase
+        .from('australia_whv_subscribers')
+        .select('id, phone, full_name, active, in_group, access_expires_at')
+        .order('paid_at', { ascending: false, nullsFirst: false })
+        .limit(500)
+      const subscribers = (data ?? []).map((s: Record<string, unknown>) => ({
+        ...s,
+        overdue: !!s.access_expires_at && new Date(String(s.access_expires_at)) < new Date(),
+      }))
+      return json({ subscribers })
+    }
+
+    if (action === 'add_subscriber') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const phone = String(body.phone ?? '').trim()
+      const full_name = String(body.full_name ?? '').trim()
+      if (!full_name) return json({ error: 'Nome obrigatório' }, 400)
+      if (!phone || phone.replace(/\D/g, '').length < 8) return json({ error: 'Telefone inválido — use E.164 (ex: +5511...)' }, 400)
+      const now = new Date().toISOString()
+      const ciclo = (await fetchPlan()).ciclo
+      await supabase.from('australia_whv_subscribers').upsert(
+        { phone, full_name, active: true, paid_at: now, access_expires_at: addCiclo(now, ciclo), payment_status: 'manual' },
+        { onConflict: 'phone' },
+      )
+      const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+      let add: { ok: boolean } | null = null
+      if (jid) {
+        add = await addParticipants(instance, jid, [phone])
+        await supabase.from('australia_whv_subscribers').update({ in_group: add.ok, group_added_at: add.ok ? now : null }).eq('phone', phone)
+      }
+      await log('success', 'add_subscriber', { message: `Assinante adicionado: ${full_name} (${phone}).`, details: { in_group: add?.ok ?? false } })
+      return json({ ok: true, in_group: add?.ok ?? false })
+    }
+
+    if (action === 'remove_subscriber') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const phone = String(body.phone ?? '').trim()
+      if (!phone) return json({ error: 'Telefone obrigatório' }, 400)
+      await supabase.from('australia_whv_subscribers').update({ active: false, in_group: false }).eq('phone', phone)
+      const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+      if (jid) await removeParticipants(instance, jid, [phone])   // best-effort
+      await log('warning', 'remove_subscriber', { message: `Assinante removido: ${phone}.` })
+      return json({ ok: true })
+    }
+
+    if (action === 'sync_group') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+      if (!jid) return json({ error: 'Nenhum grupo definido' }, 400)
+      const { data } = await supabase.from('australia_whv_subscribers').select('id, phone').eq('active', true).eq('in_group', false)
+      const list = data ?? []
+      let added = 0
+      for (const s of list) {
+        const add = await addParticipants(instance, jid, [String(s.phone)])
+        if (add.ok) { await supabase.from('australia_whv_subscribers').update({ in_group: true, group_added_at: new Date().toISOString() }).eq('id', s.id); added++ }
+        await sleep(800)   // throttle anti-ban
+      }
+      await log('info', 'sync_group', { message: `Sincronização do grupo: ${added}/${list.length} adicionado(s).` })
+      return json({ added, total: list.length })
     }
 
     return json({ error: `Ação desconhecida: ${action}` }, 400)

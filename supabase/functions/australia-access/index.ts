@@ -6,6 +6,7 @@
 //
 // Deploy: supabase functions deploy australia-access --no-verify-jwt
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { addParticipants, removeParticipants } from '../_shared/evolution.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,30 +52,43 @@ Deno.serve(async (req) => {
 
     const appUrl = Deno.env.get('APP_URL')
 
-    // ── DB (op cut/extend) ────────────────────────────────────────────────────
-    if (op === 'cut') {
-      await supabase
-        .from('australia_whv_subscribers')
-        .update({ active: false })
-        .eq('phone', phone)
-    } else if (op === 'extend') {
-      await supabase
-        .from('australia_whv_subscribers')
-        .update({ active: true, access_expires_at: access_expires_at ?? null })
-        .eq('phone', phone)
-    }
-
-    // ── WhatsApp (best-effort — não falha a operação se a Evolution cair) ──────
-    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL')
-    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY')
-
+    // Config (instância + grupo) — usada tanto p/ gestão do grupo quanto p/ o DM.
     const { data: cfg } = await supabase
       .from('australia_whv_monitor_config')
-      .select('whatsapp_instance_name')
+      .select('whatsapp_instance_name, whatsapp_group_jid')
       .eq('singleton_key', 'main')
       .maybeSingle()
 
-    if (evolutionUrl && evolutionKey && cfg?.whatsapp_instance_name) {
+    const instance = cfg?.whatsapp_instance_name
+    const groupJid = cfg?.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
+    const nowISO = new Date().toISOString()
+
+    // ── DB + gestão do GRUPO (op cut/extend) ─────────────────────────────────
+    // cut → remove do grupo + in_group=false. extend → re-add + in_group=add.ok.
+    if (op === 'cut') {
+      if (groupJid && instance) await removeParticipants(instance, groupJid, [phone])   // best-effort
+      await supabase
+        .from('australia_whv_subscribers')
+        .update({ active: false, in_group: false })
+        .eq('phone', phone)
+    } else if (op === 'extend') {
+      const upd: Record<string, unknown> = { active: true, access_expires_at: access_expires_at ?? null }
+      if (groupJid && instance) {
+        const add = await addParticipants(instance, groupJid, [phone])
+        upd.in_group = add.ok
+        upd.group_added_at = add.ok ? nowISO : null
+      }
+      await supabase
+        .from('australia_whv_subscribers')
+        .update(upd)
+        .eq('phone', phone)
+    }
+
+    // ── WhatsApp DM (best-effort — não falha a operação se a Evolution cair) ──
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL')
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY')
+
+    if (evolutionUrl && evolutionKey && instance) {
       const numberClean = phone.replace('+', '').replace(/\D/g, '')
       let text = ''
       if (op === 'warn') {
@@ -85,7 +99,7 @@ Deno.serve(async (req) => {
         const date = access_expires_at ? new Date(access_expires_at).toLocaleDateString('pt-BR') : ''
         text = `✅ Assinatura renovada! Acesso liberado até ${date}.`
       }
-      await fetch(`${evolutionUrl}/message/sendText/${cfg.whatsapp_instance_name}`, {
+      await fetch(`${evolutionUrl}/message/sendText/${instance}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
         body: JSON.stringify({ number: numberClean, text, delay: 500 }),

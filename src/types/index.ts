@@ -43,12 +43,14 @@ export interface MonitorConfig {
   whatsapp_instance_name: string
   whatsapp_status: WhatsappStatus
   whatsapp_last_checked_at: string | null
+  whatsapp_group_jid: string | null
+  whatsapp_group_name: string | null
+  whatsapp_group_invite_url: string | null
   last_detected_status: DetectedStatus
   last_detected_raw: string | null
   last_checked_at: string | null
   opened_at: string | null
   notified_at: string | null
-  auto_pause_after_open: boolean
   created_at: string
   updated_at: string
 }
@@ -56,4 +58,24 @@ export interface MonitorConfig {
 export interface AdminStats {
   active: number
   notified: number
+  in_group: number
+  overdue: number
+}
+
+// Grupo do WhatsApp (Evolution) exibido no seletor do /admin.
+export interface WhatsappGroup {
+  jid: string
+  name: string
+  size: number
+}
+
+// Assinante na tabela de gestão do /admin.
+export interface AdminSubscriber {
+  id: string
+  phone: string
+  full_name: string | null
+  active: boolean
+  in_group: boolean
+  access_expires_at: string | null
+  overdue: boolean            // access_expires_at < now
 }

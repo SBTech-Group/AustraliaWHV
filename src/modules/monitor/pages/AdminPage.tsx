@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplug, Users, X } from 'lucide-react'
+import { Copy, Link2, LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplug, UserPlus, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
-import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs } from '../hooks/adminMonitor'
+import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs, useGroups, useSubscribers } from '../hooks/adminMonitor'
 import type { DetectedStatus } from '../../../types'
 
 const S: Record<string, CSSProperties> = {
@@ -28,13 +28,21 @@ export function AdminPage() {
   const navigate = useNavigate()
   const { data, isLoading } = useAdminConfig()
   const { data: logs = [], refetch: refetchLogs } = useAdminLogs()
+  const { data: subscribers = [] } = useSubscribers()
   const action = useAdminAction()
   const config = data?.config
   const stats = data?.stats
 
-  const [form, setForm] = useState({ enabled: false, check_interval_minutes: 2, whatsapp_instance_name: 'australia_whv_saas', country_name: 'Brazil' })
+  const [form, setForm] = useState({ enabled: false, check_interval_minutes: 1, whatsapp_instance_name: 'australia_whv_saas', country_name: 'Brazil' })
   const [testNumber, setTestNumber] = useState('')
   const [connectOpen, setConnectOpen] = useState(false)
+  // Grupo: só carrega a lista da Evolution quando o admin abre o seletor.
+  const [loadGroups, setLoadGroups] = useState(false)
+  const [selGroup, setSelGroup] = useState('')
+  const { data: groups = [], isFetching: groupsBusy } = useGroups(loadGroups)
+  // Novo assinante (E.164 digitado à mão pelo admin).
+  const [subName, setSubName] = useState('')
+  const [subPhone, setSubPhone] = useState('')
   const seeded = useRef(false)
   useEffect(() => {
     if (config && !seeded.current) {
@@ -62,6 +70,39 @@ export function AdminPage() {
   }
   const logout = async () => { await supabase.auth.signOut(); navigate('/admin/login', { replace: true }) }
 
+  // ── Grupo ──
+  const saveGroup = () => {
+    const g = groups.find((x) => x.jid === selGroup)
+    if (!g) { toast.error('Selecione um grupo'); return }
+    run({ action: 'set_group', group_jid: g.jid, group_name: g.name }, 'Grupo definido', 'Salvando grupo…')
+  }
+  const syncGroup = async () => {
+    try {
+      toast.info('Sincronizando grupo…')
+      const res = (await action.mutateAsync({ action: 'sync_group' })) as { added?: number; total?: number }
+      toast.success(`Sincronizado: ${res.added ?? 0} de ${res.total ?? 0} adicionados`)
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Falha') }
+  }
+  const copyInvite = () => {
+    if (!config?.whatsapp_group_invite_url) return
+    navigator.clipboard.writeText(config.whatsapp_group_invite_url).then(() => toast.success('Convite copiado')).catch(() => toast.error('Não foi possível copiar'))
+  }
+
+  // ── Assinantes ──
+  const addSub = async () => {
+    const phone = subPhone.trim(), full_name = subName.trim()
+    if (!phone || !full_name) { toast.error('Informe nome e telefone'); return }
+    try {
+      toast.info('Adicionando…')
+      await action.mutateAsync({ action: 'add_subscriber', phone, full_name })
+      toast.success('Assinante adicionado'); setSubName(''); setSubPhone('')
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Falha') }
+  }
+  const removeSub = (phone: string) => {
+    if (confirm(`Remover assinante ${phone}?`)) run({ action: 'remove_subscriber', phone }, 'Assinante removido', 'Removendo…')
+  }
+  const overdueCount = subscribers.filter((s) => s.active && s.overdue).length
+
   const detected = (config?.last_detected_status ?? 'Unknown') as DetectedStatus
   const waConnected = config?.whatsapp_status === 'open'
 
@@ -80,6 +121,8 @@ export function AdminPage() {
             { l: 'Monitor', v: config?.enabled ? 'Ativo' : 'Inativo', c: config?.enabled ? '#4FCB8E' : '#888' },
             { l: 'WhatsApp', v: config?.whatsapp_status ?? 'unknown', c: waConnected ? '#4FCB8E' : '#888' },
             { l: 'Assinantes ativos', v: String(stats?.active ?? '—'), c: '#7DA0E8' },
+            { l: 'No grupo', v: String(stats?.in_group ?? '—'), c: '#4FCB8E' },
+            { l: 'Vencidos', v: String(stats?.overdue ?? '—'), c: (stats?.overdue ?? 0) > 0 ? '#F26D70' : '#888' },
             { l: 'Já notificados', v: String(stats?.notified ?? '—'), c: '#E2BE6A' },
           ].map((k) => (
             <div key={k.l} style={S.card}>
@@ -153,9 +196,80 @@ export function AdminPage() {
               </button>
             </div>
             <div style={{ marginTop: 14, padding: '8px 12px', background: 'rgba(125,160,232,0.10)', borderRadius: 6, fontSize: 11.5, color: '#9a9a9a', display: 'flex', gap: 8 }}>
-              <Users size={14} strokeWidth={1.75} /> Ao detectar <b style={{ color: '#e8e8e8' }}>Open</b>, cada assinante ativo recebe 1 alerta (não enviado 2×).
+              <Users size={14} strokeWidth={1.75} /> Ao detectar <b style={{ color: '#e8e8e8' }}>Open</b>, um único alerta é postado no <b style={{ color: '#e8e8e8' }}>grupo</b> (não em DMs).
             </div>
           </div>
+        </div>
+
+        {/* Grupo de alertas */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: 15 }}><Users size={15} strokeWidth={1.75} style={{ verticalAlign: 'middle', marginRight: 6, color: '#4FCB8E' }} />Grupo de alertas (WhatsApp)</h2>
+          <div style={{ fontSize: 13, marginBottom: 12 }}>
+            Grupo atual: <b style={{ color: '#e8e8e8' }}>{config?.whatsapp_group_name || '(nenhum)'}</b>
+          </div>
+          {config?.whatsapp_group_invite_url && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <input style={{ ...S.input, flex: 1, fontSize: 12 }} readOnly value={config.whatsapp_group_invite_url} />
+              <button style={S.btn} onClick={copyInvite}><Copy size={15} strokeWidth={1.75} /> Copiar</button>
+            </div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {!loadGroups ? (
+              <button style={S.btn} onClick={() => setLoadGroups(true)}><Users size={15} strokeWidth={1.75} /> Carregar grupos</button>
+            ) : groupsBusy ? (
+              <span style={{ color: '#888', fontSize: 13 }}>Carregando grupos…</span>
+            ) : (
+              <>
+                <select style={{ ...S.input, flex: 1, minWidth: 220 }} value={selGroup} onChange={(e) => setSelGroup(e.target.value)}>
+                  <option value="">Selecione um grupo…</option>
+                  {groups.map((g) => (<option key={g.jid} value={g.jid}>{g.name} — {g.size}</option>))}
+                </select>
+                <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending || !selGroup} onClick={saveGroup}><Save size={15} strokeWidth={1.75} /> Salvar grupo</button>
+              </>
+            )}
+            <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'refresh_invite' }, 'Convite atualizado', 'Atualizando…')}><Link2 size={15} strokeWidth={1.75} /> Atualizar convite</button>
+            <button style={S.btn} disabled={action.isPending} onClick={syncGroup}><RefreshCw size={15} strokeWidth={1.75} /> Sincronizar grupo</button>
+          </div>
+        </div>
+
+        {/* Assinantes */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 15 }}>Assinantes ({subscribers.length})</h2>
+            {overdueCount > 0 && <span style={{ fontSize: 12, color: '#F26D70' }}>{overdueCount} vencido(s)</span>}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            <input style={{ ...S.input, flex: 2, minWidth: 160 }} placeholder="Nome completo" value={subName} onChange={(e) => setSubName(e.target.value)} />
+            <input style={{ ...S.input, flex: 1, minWidth: 140 }} placeholder="+5511999999999" value={subPhone} onChange={(e) => setSubPhone(e.target.value)} />
+            <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending || !subName.trim() || !subPhone.trim()} onClick={addSub}><UserPlus size={15} strokeWidth={1.75} /> Adicionar</button>
+          </div>
+          {subscribers.length === 0 ? <div style={{ color: '#888' }}>Nenhum assinante.</div> : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+                <thead><tr style={{ color: '#888', textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px' }}>Nome</th><th style={{ padding: '6px 8px' }}>Telefone</th>
+                  <th style={{ padding: '6px 8px' }}>Status</th><th style={{ padding: '6px 8px' }}>Acesso</th>
+                  <th style={{ padding: '6px 8px' }}>Grupo</th><th style={{ padding: '6px 8px' }}>Ação</th>
+                </tr></thead>
+                <tbody>
+                  {subscribers.map((s) => (
+                    <tr key={s.id} style={{ borderTop: '1px solid #222', background: s.overdue ? 'rgba(242,109,112,0.07)' : undefined }}>
+                      <td style={{ padding: '6px 8px' }}>{s.full_name ?? '—'}</td>
+                      <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{s.phone}</td>
+                      <td style={{ padding: '6px 8px', color: s.active ? '#4FCB8E' : '#888' }}>{s.active ? 'Ativo' : 'Inativo'}</td>
+                      <td style={{ padding: '6px 8px', color: s.overdue ? '#F26D70' : '#9a9a9a' }}>
+                        {s.overdue ? 'Vencido' : s.access_expires_at ? `ok até ${fmt(s.access_expires_at)}` : 'vitalício'}
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>{s.in_group ? '✓' : '—'}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <button style={{ ...S.btn, height: 30, padding: '0 8px', color: '#F26D70' }} disabled={action.isPending} onClick={() => removeSub(s.phone)}><Trash2 size={14} strokeWidth={1.75} /> Remover</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Logs */}
