@@ -104,8 +104,21 @@ alter table australia_whv_subscribers     enable row level security;
 alter table australia_whv_otps            enable row level security;
 
 -- Logs: leitura pública (histórico de verificações — dado público)
-create policy "anon read monitor logs"
-  on australia_whv_monitor_logs for select to anon using (true);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'australia_whv_monitor_logs'
+      and policyname = 'anon read monitor logs'
+  ) then
+    execute $policy$
+      create policy "anon read monitor logs"
+        on public.australia_whv_monitor_logs for select to anon using (true)
+    $policy$;
+  end if;
+end $$;
 
 -- Config: NÃO expor a tabela ao anon (contém whatsapp_target_numbers = telefones
 -- dos assinantes). O status público é servido por uma VIEW só com colunas seguras.
