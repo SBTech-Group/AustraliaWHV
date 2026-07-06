@@ -50,10 +50,15 @@ export async function fetchPlan(): Promise<PlanInfo> {
 }
 
 export function usePlan() {
-  return useQuery({
+  const q = useQuery({
     queryKey: ['plan'],
     queryFn: fetchPlan,
     staleTime: 60_000,   // preço vem do Hub; reflete alterações em ~1min
-    initialData: FALLBACK,
+    // placeholderData (NÃO initialData): mostra o fallback enquanto carrega mas
+    // FAZ o fetch no mount. Com initialData o react-query trata o fallback como
+    // dado real/fresco e NÃO busca → preço do Hub nunca aparecia.
+    placeholderData: FALLBACK,
   })
+  // Garante data sempre presente (placeholder ou real) — callers usam plan.price direto.
+  return { ...q, data: q.data ?? FALLBACK }
 }
