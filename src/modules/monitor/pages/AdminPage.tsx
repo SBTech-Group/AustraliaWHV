@@ -183,18 +183,6 @@ export function AdminPage() {
                 <div style={{ color: '#e8e8e8', fontWeight: 600 }}>Execução automática</div>
                 <div style={{ color: '#9a9a9a', fontSize: 12 }}>Pausa ou libera o cron configurado para rodar no intervalo abaixo.</div>
               </div>
-              <button
-                style={{
-                  ...S.btn,
-                  color: config?.enabled ? '#E2BE6A' : '#4FCB8E',
-                  borderColor: config?.enabled ? 'rgba(226,190,106,0.35)' : 'rgba(79,203,142,0.35)',
-                }}
-                disabled={action.isPending}
-                onClick={toggleCron}
-              >
-                {config?.enabled ? <Pause size={15} strokeWidth={1.75} /> : <Play size={15} strokeWidth={1.75} />}
-                {config?.enabled ? 'Pausar' : 'Continuar'}
-              </button>
             </div>
             <div style={{ marginBottom: 12 }}>
               <label style={S.label}>Intervalo (min, 1–60) — cadência real = cron</label>
