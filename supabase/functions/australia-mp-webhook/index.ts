@@ -48,6 +48,8 @@ Deno.serve(async (req) => {
     const payment = await res.json() as {
       status: string
       external_reference: string
+      transaction_amount?: number
+      description?: string
       payer?: { email?: string; first_name?: string; last_name?: string }
     }
 
@@ -72,6 +74,23 @@ Deno.serve(async (req) => {
         : `Assinante ativado via webhook (${phone}). Grupo: ${r.in_group ? 'ok' : 'não'} · Hub: ${r.hub?.ok ? 'ok' : 'falha'}.`,
       { hub: r.hub },
     )
+
+    if (r.activated && !r.alreadyActive) {
+      const nomeCliente = [payment.payer?.first_name, payment.payer?.last_name].filter(Boolean).join(' ') || phone
+      const nomePlano = payment.description ?? 'Plano'
+      const valor = payment.transaction_amount?.toFixed(2) ?? '?'
+      try {
+        await fetch('https://ntfy.sh/saas-vendas-k9x3mq7z', {
+          method: 'POST',
+          headers: {
+            'Title': 'Nova assinatura!',
+            'Priority': 'high',
+            'Tags': 'moneybag',
+          },
+          body: `${nomeCliente} assinou o plano ${nomePlano} - R$${valor}`,
+        })
+      } catch { /* falha no ntfy nunca quebra o webhook */ }
+    }
 
     return new Response('ok', { headers: corsHeaders })
   } catch (err) {
