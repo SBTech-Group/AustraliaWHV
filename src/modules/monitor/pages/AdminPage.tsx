@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Copy, Link2, LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplug, UserPlus, Users, X } from 'lucide-react'
+import { Copy, Link2, LogOut, Pause, Play, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplug, UserPlus, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs, useGroups, useSubscribers } from '../hooks/adminMonitor'
@@ -95,6 +95,19 @@ export function AdminPage() {
   }
 
   // ── Assinantes ──
+  const toggleCron = async () => {
+    const nextEnabled = !config?.enabled
+    try {
+      toast.info(nextEnabled ? 'Continuando cron...' : 'Pausando cron...')
+      await action.mutateAsync({ action: 'save_config', payload: { enabled: nextEnabled } })
+      setForm((f) => ({ ...f, enabled: nextEnabled }))
+      if (nextEnabled) await action.mutateAsync({ action: 'check_now' })
+      toast.success(nextEnabled ? 'Cron ativo' : 'Cron pausado')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao alterar cron')
+    }
+  }
+
   const addSub = async () => {
     const phone = subPhone.trim(), full_name = subName.trim()
     if (!phone || !full_name) { toast.error('Informe nome e telefone'); return }
@@ -141,6 +154,20 @@ export function AdminPage() {
         {/* Cron status detalhado */}
         <div style={{ fontSize: 12, color: '#9a9a9a', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <span>Cron: <b style={{ color: cron.healthy ? '#4FCB8E' : '#E2BE6A' }}>{cron.label}</b></span>
+          <button
+            style={{
+              ...S.btn,
+              height: 28,
+              padding: '0 10px',
+              color: config?.enabled ? '#E2BE6A' : '#4FCB8E',
+              borderColor: config?.enabled ? 'rgba(226,190,106,0.35)' : 'rgba(79,203,142,0.35)',
+            }}
+            disabled={action.isPending}
+            onClick={toggleCron}
+          >
+            {config?.enabled ? <Pause size={13} strokeWidth={1.75} /> : <Play size={13} strokeWidth={1.75} />}
+            {config?.enabled ? 'Pausar cron' : 'Continuar cron'}
+          </button>
           {cron.nextAt && <span>Contagem: <b style={{ color: '#e8e8e8' }}>{countdown(cron.nextAt, now)}</b></span>}
           <span>Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt)})</span>
           {cron.nextAt && <span>Próxima: {relTime(cron.nextAt)}</span>}
@@ -151,10 +178,24 @@ export function AdminPage() {
           {/* Config */}
           <div style={S.card}>
             <h2 style={{ margin: '0 0 16px', fontSize: 15 }}>Configuração</h2>
-            <label style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14, fontSize: 13, cursor: 'pointer' }}>
-              Monitoramento ativo
-              <input type="checkbox" checked={form.enabled} onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} />
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 14, fontSize: 13 }}>
+              <div>
+                <div style={{ color: '#e8e8e8', fontWeight: 600 }}>Execução automática</div>
+                <div style={{ color: '#9a9a9a', fontSize: 12 }}>Pausa ou libera o cron configurado para rodar no intervalo abaixo.</div>
+              </div>
+              <button
+                style={{
+                  ...S.btn,
+                  color: config?.enabled ? '#E2BE6A' : '#4FCB8E',
+                  borderColor: config?.enabled ? 'rgba(226,190,106,0.35)' : 'rgba(79,203,142,0.35)',
+                }}
+                disabled={action.isPending}
+                onClick={toggleCron}
+              >
+                {config?.enabled ? <Pause size={15} strokeWidth={1.75} /> : <Play size={15} strokeWidth={1.75} />}
+                {config?.enabled ? 'Pausar' : 'Continuar'}
+              </button>
+            </div>
             <div style={{ marginBottom: 12 }}>
               <label style={S.label}>Intervalo (min, 1–60) — cadência real = cron</label>
               <input style={S.input} type="number" min={1} max={60} value={form.check_interval_minutes}
