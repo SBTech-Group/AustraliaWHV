@@ -7,6 +7,7 @@ import {
   SuccessPage,
   LoginPage,
   MonitorPage,
+  PlanPage,
   AdminLoginPage,
   AdminPage,
   TermosPage,
@@ -25,6 +26,14 @@ export function AppRouter() {
         element={
           <ProtectedRoute>
             <MonitorPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/monitor/plano"
+        element={
+          <ProtectedRoute>
+            <PlanPage />
           </ProtectedRoute>
         }
       />

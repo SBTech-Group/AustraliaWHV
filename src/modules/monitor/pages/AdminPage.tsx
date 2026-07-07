@@ -5,7 +5,7 @@ import { Copy, Link2, LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplu
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs, useGroups, useSubscribers } from '../hooks/adminMonitor'
-import { cronStatus, relTime, fmtDateTime } from '../../../lib/cron'
+import { countdown, cronStatus, relTime, fmtDateTime } from '../../../lib/cron'
 import type { DetectedStatus } from '../../../types'
 
 const S: Record<string, CSSProperties> = {
@@ -44,7 +44,12 @@ export function AdminPage() {
   // Novo assinante (E.164 digitado à mão pelo admin).
   const [subName, setSubName] = useState('')
   const [subPhone, setSubPhone] = useState('')
+  const [now, setNow] = useState(() => Date.now())
   const seeded = useRef(false)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => {
     if (config && !seeded.current) {
       seeded.current = true
@@ -106,7 +111,7 @@ export function AdminPage() {
 
   const detected = (config?.last_detected_status ?? 'Unknown') as DetectedStatus
   const waConnected = config?.whatsapp_status === 'open'
-  const cron = cronStatus(config?.last_checked_at, config?.check_interval_minutes, config?.enabled)
+  const cron = cronStatus(config?.last_checked_at, config?.check_interval_minutes, config?.enabled, now)
 
   return (
     <div style={S.page}>
@@ -136,6 +141,7 @@ export function AdminPage() {
         {/* Cron status detalhado */}
         <div style={{ fontSize: 12, color: '#9a9a9a', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <span>Cron: <b style={{ color: cron.healthy ? '#4FCB8E' : '#E2BE6A' }}>{cron.label}</b></span>
+          {cron.nextAt && <span>Contagem: <b style={{ color: '#e8e8e8' }}>{countdown(cron.nextAt, now)}</b></span>}
           <span>Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt)})</span>
           {cron.nextAt && <span>Próxima: {relTime(cron.nextAt)}</span>}
           <span>Aberto desde: {fmt(config?.opened_at)}</span>

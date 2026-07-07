@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, MessageCircle, Copy, Check, CreditCard, QrCode } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageCircle, Copy, Check, CreditCard, QrCode, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { loadMercadoPago, type MercadoPagoInstance } from '../../../lib/mercadopago'
@@ -8,7 +8,7 @@ import { PhoneInput } from '../../../components/PhoneInput'
 import { COUNTRIES, DEFAULT_COUNTRY, maskPhone, toE164, type Country } from '../../../lib/countries'
 import { usePlan } from '../../../lib/plan'
 
-type Step = 'contact' | 'method' | 'card' | 'pix'
+type Step = 'contact' | 'confirm' | 'method' | 'card' | 'pix'
 
 interface PixData {
   qr_code: string
@@ -50,6 +50,7 @@ export function CheckoutPage() {
   const [pix, setPix] = useState<PixData | null>(null)
   const [copied, setCopied] = useState(false)
   const [pixLoading, setPixLoading] = useState(false)
+  const [contactConfirmed, setContactConfirmed] = useState(false)
 
   // Pré-checagem de acesso ao entrar no passo 'method'.
   const [checkingAccess, setCheckingAccess] = useState(false)
@@ -76,9 +77,10 @@ export function CheckoutPage() {
       return
     }
     setFullPhone(toE164(country.code, digits))
+    setContactConfirmed(false)
     setHasActiveAccess(false)
     setAccessExpiresAt(null)
-    setStep('method')
+    setStep('confirm')
   }
 
   // ── Pré-checagem: já possui acesso ativo? ──────────────────────────────────
@@ -213,6 +215,8 @@ export function CheckoutPage() {
 
   const goBack = () => {
     if (step === 'contact') return navigate('/')
+    if (step === 'confirm') return setStep('contact')
+    if (step === 'method') return setStep('confirm')
     if (step === 'card' || step === 'pix') return setStep('method')
     return setStep('contact')
   }
@@ -278,6 +282,41 @@ export function CheckoutPage() {
                 Termos e Política de Privacidade
               </button>{' '}
               e que enviaremos mensagens de alerta WHV para este número via WhatsApp.
+            </p>
+          </>
+        )}
+
+        {step === 'confirm' && (
+          <>
+            <div className="auth-icon">
+              <ShieldCheck size={32} strokeWidth={1.5} />
+            </div>
+            <h1>Confirme seus dados</h1>
+            <p className="auth-sub">
+              O acesso ao painel, o código de login e os alertas serão enviados para estes contatos.
+            </p>
+            <div className="confirm-summary">
+              <div><span>Nome</span><strong>{fullName.trim()}</strong></div>
+              <div><span>E-mail</span><strong>{email}</strong></div>
+              <div><span>WhatsApp</span><strong>{fullPhone}</strong></div>
+              <div><span>País</span><strong>{country.name}</strong></div>
+            </div>
+            <label className="confirm-check">
+              <input
+                type="checkbox"
+                checked={contactConfirmed}
+                onChange={(e) => setContactConfirmed(e.target.checked)}
+              />
+              <span>Confirmo que os dados estão corretos e que consigo receber mensagens neste WhatsApp.</span>
+            </label>
+            <button className="btn-primary-lg" disabled={!contactConfirmed} onClick={() => setStep('method')}>
+              Confirmar e escolher pagamento
+            </button>
+            <button type="button" className="btn-text" onClick={() => setStep('contact')}>
+              Corrigir dados
+            </button>
+            <p className="auth-disclaimer">
+              Dados incorretos podem liberar o pagamento sem permitir acesso ao painel ou recebimento dos alertas.
             </p>
           </>
         )}

@@ -1,12 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, CheckCircle2, ExternalLink, LogOut, RefreshCw, XCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { Activity, CheckCircle2, CreditCard, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
-import { useNavigate } from 'react-router-dom'
-import { usePlan, cicloLabel } from '../../../lib/plan'
-import { cronStatus, fmtDateTime, relTime } from '../../../lib/cron'
+import { countdown, cronStatus, fmtDateTime, relTime } from '../../../lib/cron'
 import type { DetectedStatus, MonitorStatus } from '../../../types'
 
 const STATUS_META: Record<DetectedStatus, { label: string; color: string; bg: string }> = {
@@ -32,34 +30,26 @@ function useMonitorStatus() {
 }
 
 export function MonitorPage() {
-  const { subscriber, token, logout } = useAuth()
+  const { subscriber, logout } = useAuth()
   const navigate = useNavigate()
   const { data: status, isLoading } = useMonitorStatus()
-  const { data: plan } = usePlan()
-  const [canceling, setCanceling] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const detected = (status?.last_detected_status ?? 'Unknown') as DetectedStatus
   const meta = STATUS_META[detected]
-  const cron = cronStatus(status?.last_checked_at, status?.check_interval_minutes, status?.enabled)
+  const cron = cronStatus(status?.last_checked_at, status?.check_interval_minutes, status?.enabled, now)
 
   const nome = subscriber?.full_name?.trim() || subscriber?.phone || 'Assinante'
   const expira = subscriber?.access_expires_at
 
-  const handleLogout = () => { logout(); navigate('/login') }
-
-  async function handleCancel() {
-    if (!confirm('Cancelar sua assinatura? Você perderá o acesso ao painel e sairá do grupo de alertas.')) return
-    setCanceling(true)
-    try {
-      const { data, error } = await supabase.functions.invoke('australia-cancel', { body: { session_token: token } })
-      if (error || (data as { error?: string })?.error) throw new Error((data as { error?: string })?.error ?? 'Erro ao cancelar')
-      toast.success('Assinatura cancelada.')
-      logout(); navigate('/login')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao cancelar.')
-    } finally {
-      setCanceling(false)
-    }
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
   }
 
   return (
@@ -78,7 +68,6 @@ export function MonitorPage() {
       </header>
 
       <main className="monitor-main">
-        {/* STATUS AUSTRÁLIA */}
         <div className="status-card">
           {isLoading ? (
             <div className="loading-row"><RefreshCw size={16} className="spin" /> Carregando...</div>
@@ -86,7 +75,7 @@ export function MonitorPage() {
             <>
               <div className="status-card-header">
                 <div>
-                  <div className="status-label">Status atual — {status?.country_name ?? 'Brazil'}</div>
+                  <div className="status-label">Status atual - {status?.country_name ?? 'Brazil'}</div>
                   <div className="status-badge" style={{ color: meta.color, background: meta.bg }}>
                     <span className="status-dot-live" style={{ background: meta.color }} />
                     {meta.label}
@@ -102,7 +91,6 @@ export function MonitorPage() {
           )}
         </div>
 
-        {/* AUTOMAÇÃO (CRON) */}
         <div className="status-card">
           <div className="status-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Activity size={14} /> Automação
@@ -116,32 +104,33 @@ export function MonitorPage() {
             {cron.healthy ? 'Funcionando' : cron.label}
           </div>
           <div className="status-card-meta" style={{ marginTop: 12 }}>
-            <div className="meta-row"><RefreshCw size={12} /> Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt)})</div>
-            {cron.healthy && cron.nextAt && <div className="meta-row muted">Próxima verificação: {relTime(cron.nextAt)}</div>}
-            <div className="meta-row muted">Verificação a cada {status?.check_interval_minutes ?? 1} min · 24h</div>
+            <div className="meta-row"><RefreshCw size={12} /> Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt, now)})</div>
+            {cron.nextAt && (
+              <div className="cron-next">
+                <span>Próxima verificação</span>
+                <strong>{countdown(cron.nextAt, now)}</strong>
+                <small>{relTime(cron.nextAt, now)}</small>
+              </div>
+            )}
+            <div className="meta-row muted">Verificação a cada {status?.check_interval_minutes ?? 1} min - 24h</div>
           </div>
         </div>
 
-        {/* MINHA ASSINATURA */}
         <div className="status-card">
-          <div className="status-label">Minha assinatura</div>
-          <div className="sub-grid">
-            <div><span className="sub-k">Plano</span><span className="sub-v">{plan.name}</span></div>
-            <div><span className="sub-k">Valor</span><span className="sub-v">{plan.priceLabel} <small>{cicloLabel(plan.ciclo)}</small></span></div>
+          <div className="access-card-row">
             <div>
-              <span className="sub-k">Situação</span>
-              <span className="sub-v" style={{ color: '#4FCB8E', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <div className="status-label">Seu acesso</div>
+              <div className="sub-v" style={{ color: '#4FCB8E', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <CheckCircle2 size={14} /> Ativo
-              </span>
+              </div>
+              <div className="meta-row muted" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
+                {expira ? `Renova/expira em ${fmtDateTime(expira)}` : 'Acesso vitalício'}
+              </div>
             </div>
-            <div>
-              <span className="sub-k">{expira ? 'Renova/expira em' : 'Acesso'}</span>
-              <span className="sub-v">{expira ? fmtDateTime(expira) : 'Vitalício'}</span>
-            </div>
+            <button className="btn-outline-sm" onClick={() => navigate('/monitor/plano')}>
+              <CreditCard size={13} /> Gerenciar assinatura
+            </button>
           </div>
-          <button className="btn-outline-sm cancel-link" onClick={handleCancel} disabled={canceling}>
-            <XCircle size={13} /> {canceling ? 'Cancelando...' : 'Cancelar assinatura'}
-          </button>
         </div>
       </main>
     </div>
