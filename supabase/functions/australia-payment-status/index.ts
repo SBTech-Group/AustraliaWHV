@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { activateSubscriber } from '../_shared/activate.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +14,8 @@ function json(data: unknown, status = 200) {
 }
 
 // Consultado pelo front (polling) enquanto o cliente paga via PIX.
-// Retorna o payment_status gravado pelo webhook — não expõe o MP.
+// NÃO depende do webhook do MP chegar: consulta o pagamento direto no MP e, se
+// aprovado, ATIVA o assinante aqui mesmo (self-heal). O webhook vira só um atalho.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -28,16 +30,54 @@ Deno.serve(async (req) => {
 
     const { data } = await supabase
       .from('australia_whv_subscribers')
-      .select('payment_status, active, access_expires_at')
+      .select('payment_status, active, access_expires_at, payment_id, full_name, email')
       .eq('phone', phone)
       .maybeSingle()
 
-    const active = data?.active ?? false
-    const accessExpiresAt = data?.access_expires_at ?? null
+    let paymentStatus = data?.payment_status ?? 'pending'
+    let active = data?.active ?? false
+    let accessExpiresAt = data?.access_expires_at ?? null
+
+    // Ainda não aprovado localmente? Pergunta ao MP e ativa se já pagou.
+    // (cobre o caso do webhook do MP não chegar / falhar.)
+    const notYetActive = !active || (accessExpiresAt != null && new Date(accessExpiresAt) <= new Date())
+    if (notYetActive && data?.payment_id) {
+      const token = Deno.env.get('MP_ACCESS_TOKEN')
+      if (token) {
+        try {
+          const mp = await fetch(`https://api.mercadopago.com/v1/payments/${data.payment_id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (mp.ok) {
+            const pay = await mp.json() as { status?: string; payer?: { email?: string; first_name?: string; last_name?: string } }
+            if (pay.status === 'approved') {
+              await activateSubscriber(supabase, {
+                phone,
+                paymentId: String(data.payment_id),
+                nome: data.full_name || [pay.payer?.first_name, pay.payer?.last_name].filter(Boolean).join(' '),
+                email: data.email || pay.payer?.email,
+              })
+              paymentStatus = 'approved'
+              active = true
+              // relê expiração recém-gravada
+              const { data: fresh } = await supabase
+                .from('australia_whv_subscribers')
+                .select('access_expires_at')
+                .eq('phone', phone)
+                .maybeSingle()
+              accessExpiresAt = fresh?.access_expires_at ?? accessExpiresAt
+            }
+          }
+        } catch (e) {
+          console.error('payment-status MP check', e)
+        }
+      }
+    }
+
     const hasActiveAccess = active && (accessExpiresAt == null || new Date(accessExpiresAt) > new Date())
 
     return json({
-      status: data?.payment_status ?? 'pending',
+      status: paymentStatus,
       active,
       access_expires_at: accessExpiresAt,
       has_active_access: hasActiveAccess,
