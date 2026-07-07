@@ -5,6 +5,7 @@ import { Copy, Link2, LogOut, Plug, QrCode, RefreshCw, Save, Send, Trash2, Unplu
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { pollWhatsappState, useAdminAction, useAdminConfig, useAdminLogs, useGroups, useSubscribers } from '../hooks/adminMonitor'
+import { cronStatus, relTime, fmtDateTime } from '../../../lib/cron'
 import type { DetectedStatus } from '../../../types'
 
 const S: Record<string, CSSProperties> = {
@@ -105,6 +106,7 @@ export function AdminPage() {
 
   const detected = (config?.last_detected_status ?? 'Unknown') as DetectedStatus
   const waConnected = config?.whatsapp_status === 'open'
+  const cron = cronStatus(config?.last_checked_at, config?.check_interval_minutes, config?.enabled)
 
   return (
     <div style={S.page}>
@@ -115,15 +117,14 @@ export function AdminPage() {
 
       <div style={S.main}>
         {/* KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 12 }}>
           {[
             { l: 'Status Brazil', v: DET[detected].label, c: DET[detected].c },
-            { l: 'Monitor', v: config?.enabled ? 'Ativo' : 'Inativo', c: config?.enabled ? '#4FCB8E' : '#888' },
+            { l: 'Cron', v: cron.state === 'active' ? 'Ativo' : cron.state === 'off' ? 'Desligado' : cron.state === 'stale' ? 'Parado' : '—', c: cron.healthy ? '#4FCB8E' : cron.state === 'off' ? '#888' : '#F26D70' },
             { l: 'WhatsApp', v: config?.whatsapp_status ?? 'unknown', c: waConnected ? '#4FCB8E' : '#888' },
             { l: 'Assinantes ativos', v: String(stats?.active ?? '—'), c: '#7DA0E8' },
             { l: 'No grupo', v: String(stats?.in_group ?? '—'), c: '#4FCB8E' },
             { l: 'Vencidos', v: String(stats?.overdue ?? '—'), c: (stats?.overdue ?? 0) > 0 ? '#F26D70' : '#888' },
-            { l: 'Já notificados', v: String(stats?.notified ?? '—'), c: '#E2BE6A' },
           ].map((k) => (
             <div key={k.l} style={S.card}>
               <div style={{ fontSize: 11.5, color: '#9a9a9a' }}>{k.l}</div>
@@ -132,8 +133,12 @@ export function AdminPage() {
           ))}
         </div>
 
-        <div style={{ fontSize: 12, color: '#9a9a9a', marginBottom: 16 }}>
-          Última verificação: {fmt(config?.last_checked_at)} · Aberto desde: {fmt(config?.opened_at)}
+        {/* Cron status detalhado */}
+        <div style={{ fontSize: 12, color: '#9a9a9a', marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span>Cron: <b style={{ color: cron.healthy ? '#4FCB8E' : '#E2BE6A' }}>{cron.label}</b></span>
+          <span>Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt)})</span>
+          {cron.nextAt && <span>Próxima: {relTime(cron.nextAt)}</span>}
+          <span>Aberto desde: {fmt(config?.opened_at)}</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>

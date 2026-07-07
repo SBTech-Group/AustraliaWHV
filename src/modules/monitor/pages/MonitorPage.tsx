@@ -1,89 +1,76 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
+import { Activity, CheckCircle2, ExternalLink, LogOut, RefreshCw, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { useNavigate } from 'react-router-dom'
-import type { DetectedStatus, MonitorLog, MonitorStatus } from '../../../types'
+import { usePlan, cicloLabel } from '../../../lib/plan'
+import { cronStatus, fmtDateTime, relTime } from '../../../lib/cron'
+import type { DetectedStatus, MonitorStatus } from '../../../types'
 
 const STATUS_META: Record<DetectedStatus, { label: string; color: string; bg: string }> = {
-  Open:    { label: 'Aberto',     color: '#4FCB8E', bg: 'rgba(79,203,142,0.12)' },
-  Closed:  { label: 'Fechado',    color: '#F26D70', bg: 'rgba(242,109,112,0.12)' },
-  Paused:  { label: 'Pausado',    color: '#E2BE6A', bg: 'rgba(226,190,106,0.12)' },
-  Unknown: { label: 'Verificando', color: '#888',   bg: 'rgba(136,136,136,0.10)' },
-}
-
-const LOG_COLORS: Record<string, string> = {
-  success: '#4FCB8E',
-  warning: '#E2BE6A',
-  error:   '#F26D70',
-  info:    '#6B8EFF',
+  Open:    { label: 'Aberto',      color: '#4FCB8E', bg: 'rgba(79,203,142,0.12)' },
+  Closed:  { label: 'Fechado',     color: '#F26D70', bg: 'rgba(242,109,112,0.12)' },
+  Paused:  { label: 'Pausado',     color: '#E2BE6A', bg: 'rgba(226,190,106,0.12)' },
+  Unknown: { label: 'Verificando', color: '#888',    bg: 'rgba(136,136,136,0.10)' },
 }
 
 function useMonitorStatus() {
   return useQuery<MonitorStatus | null>({
     queryKey: ['monitor_status'],
     queryFn: async () => {
-      // VIEW pública (só colunas seguras) — a tabela base não é exposta ao anon.
       const { data, error } = await supabase
         .from('australia_whv_public_status')
-        .select('enabled, last_detected_status, last_detected_raw, last_checked_at, opened_at, country_name, official_url')
+        .select('enabled, last_detected_status, last_detected_raw, last_checked_at, opened_at, country_name, official_url, check_interval_minutes')
         .maybeSingle()
       if (error) throw error
       return data as MonitorStatus | null
     },
-    refetchInterval: 30_000,
+    refetchInterval: 20_000,
   })
-}
-
-function useMonitorLogs() {
-  return useQuery<MonitorLog[]>({
-    queryKey: ['monitor_logs'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('australia_whv_monitor_logs')
-        .select('id, level, action, detected_status, message, created_at')
-        .order('created_at', { ascending: false })
-        .limit(50)
-      if (error) throw error
-      return (data ?? []) as MonitorLog[]
-    },
-    refetchInterval: 30_000,
-  })
-}
-
-function fmtDate(iso: string | null) {
-  if (!iso) return '—'
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-    timeZone: 'America/Sao_Paulo',
-  }).format(new Date(iso))
 }
 
 export function MonitorPage() {
-  const { subscriber, logout } = useAuth()
+  const { subscriber, token, logout } = useAuth()
   const navigate = useNavigate()
-  const { data: status, isLoading: loadingStatus, dataUpdatedAt } = useMonitorStatus()
-  const { data: logs, isLoading: loadingLogs } = useMonitorLogs()
+  const { data: status, isLoading } = useMonitorStatus()
+  const { data: plan } = usePlan()
+  const [canceling, setCanceling] = useState(false)
 
   const detected = (status?.last_detected_status ?? 'Unknown') as DetectedStatus
   const meta = STATUS_META[detected]
+  const cron = cronStatus(status?.last_checked_at, status?.check_interval_minutes, status?.enabled)
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
+  const nome = subscriber?.full_name?.trim() || subscriber?.phone || 'Assinante'
+  const expira = subscriber?.access_expires_at
+
+  const handleLogout = () => { logout(); navigate('/login') }
+
+  async function handleCancel() {
+    if (!confirm('Cancelar sua assinatura? Você perderá o acesso ao painel e sairá do grupo de alertas.')) return
+    setCanceling(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('australia-cancel', { body: { session_token: token } })
+      if (error || (data as { error?: string })?.error) throw new Error((data as { error?: string })?.error ?? 'Erro ao cancelar')
+      toast.success('Assinatura cancelada.')
+      logout(); navigate('/login')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao cancelar.')
+    } finally {
+      setCanceling(false)
+    }
   }
 
   return (
     <div className="monitor-shell">
-      {/* TOPBAR */}
       <header className="monitor-topbar">
         <div className="monitor-topbar-left">
           <span className="logo-flag">🇦🇺</span>
           <span className="monitor-title">Monitor WHV</span>
         </div>
         <div className="monitor-topbar-right">
-          <span className="monitor-phone">{subscriber?.phone}</span>
+          <span className="monitor-user">{nome}</span>
           <button className="btn-icon" onClick={handleLogout} title="Sair">
             <LogOut size={16} strokeWidth={1.75} />
           </button>
@@ -91,93 +78,70 @@ export function MonitorPage() {
       </header>
 
       <main className="monitor-main">
-        {/* STATUS CARD */}
+        {/* STATUS AUSTRÁLIA */}
         <div className="status-card">
-          {loadingStatus ? (
+          {isLoading ? (
             <div className="loading-row"><RefreshCw size={16} className="spin" /> Carregando...</div>
           ) : (
             <>
               <div className="status-card-header">
                 <div>
-                  <div className="status-label">Status atual — {status?.country_name ?? 'Brasil'}</div>
+                  <div className="status-label">Status atual — {status?.country_name ?? 'Brazil'}</div>
                   <div className="status-badge" style={{ color: meta.color, background: meta.bg }}>
                     <span className="status-dot-live" style={{ background: meta.color }} />
                     {meta.label}
                   </div>
                 </div>
-                <div className="status-card-meta">
-                  <div className="meta-row">
-                    <RefreshCw size={12} />
-                    <span>Verificado em {fmtDate(status?.last_checked_at ?? null)}</span>
-                  </div>
-                  {status?.opened_at && (
-                    <div className="meta-row" style={{ color: '#4FCB8E' }}>
-                      <Bell size={12} />
-                      <span>Aberto desde {fmtDate(status.opened_at)}</span>
-                    </div>
-                  )}
-                  {dataUpdatedAt > 0 && (
-                    <div className="meta-row muted">
-                      Painel atualizado em {fmtDate(new Date(dataUpdatedAt).toISOString())}
-                    </div>
-                  )}
-                </div>
               </div>
-
-              {status?.last_detected_raw && (
-                <div className="status-raw">
-                  <span className="status-raw-label">Texto detectado:</span>
-                  <span className="status-raw-value">"{status.last_detected_raw}"</span>
-                </div>
-              )}
-
               {status?.official_url && (
-                <a
-                  href={status.official_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-outline-sm"
-                >
-                  <ExternalLink size={13} />
-                  Ver site oficial
+                <a href={status.official_url} target="_blank" rel="noopener noreferrer" className="btn-outline-sm">
+                  <ExternalLink size={13} /> Ver site oficial
                 </a>
               )}
             </>
           )}
         </div>
 
-        {/* LOGS */}
-        <div className="logs-card">
-          <div className="logs-header">
-            <h2>Histórico de verificações</h2>
-            <span className="logs-count">{logs?.length ?? 0} registros</span>
+        {/* AUTOMAÇÃO (CRON) */}
+        <div className="status-card">
+          <div className="status-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Activity size={14} /> Automação
           </div>
+          <div className="status-badge" style={{
+            marginTop: 8,
+            color: cron.healthy ? '#4FCB8E' : '#E2BE6A',
+            background: cron.healthy ? 'rgba(79,203,142,0.12)' : 'rgba(226,190,106,0.12)',
+          }}>
+            <span className="status-dot-live" style={{ background: cron.healthy ? '#4FCB8E' : '#E2BE6A' }} />
+            {cron.healthy ? 'Funcionando' : cron.label}
+          </div>
+          <div className="status-card-meta" style={{ marginTop: 12 }}>
+            <div className="meta-row"><RefreshCw size={12} /> Última verificação: {fmtDateTime(cron.lastAt)} ({relTime(cron.lastAt)})</div>
+            {cron.healthy && cron.nextAt && <div className="meta-row muted">Próxima verificação: {relTime(cron.nextAt)}</div>}
+            <div className="meta-row muted">Verificação a cada {status?.check_interval_minutes ?? 1} min · 24h</div>
+          </div>
+        </div>
 
-          {loadingLogs ? (
-            <div className="loading-row"><RefreshCw size={16} className="spin" /> Carregando logs...</div>
-          ) : !logs?.length ? (
-            <div className="logs-empty">Nenhum registro ainda.</div>
-          ) : (
-            <div className="logs-list">
-              {logs.map(log => (
-                <div key={log.id} className="log-row">
-                  <div
-                    className="log-level"
-                    style={{ color: LOG_COLORS[log.level] ?? '#888' }}
-                  >
-                    {log.level}
-                  </div>
-                  <div className="log-body">
-                    <div className="log-message">{log.message}</div>
-                    {log.detected_status && (
-                      <div className="log-status">Status: {log.detected_status}</div>
-                    )}
-                  </div>
-                  <div className="log-time">{fmtDate(log.created_at)}</div>
-                </div>
-              ))}
+        {/* MINHA ASSINATURA */}
+        <div className="status-card">
+          <div className="status-label">Minha assinatura</div>
+          <div className="sub-grid">
+            <div><span className="sub-k">Plano</span><span className="sub-v">{plan.name}</span></div>
+            <div><span className="sub-k">Valor</span><span className="sub-v">{plan.priceLabel} <small>{cicloLabel(plan.ciclo)}</small></span></div>
+            <div>
+              <span className="sub-k">Situação</span>
+              <span className="sub-v" style={{ color: '#4FCB8E', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CheckCircle2 size={14} /> Ativo
+              </span>
             </div>
-          )}
+            <div>
+              <span className="sub-k">{expira ? 'Renova/expira em' : 'Acesso'}</span>
+              <span className="sub-v">{expira ? fmtDateTime(expira) : 'Vitalício'}</span>
+            </div>
+          </div>
+          <button className="btn-outline-sm cancel-link" onClick={handleCancel} disabled={canceling}>
+            <XCircle size={13} /> {canceling ? 'Cancelando...' : 'Cancelar assinatura'}
+          </button>
         </div>
       </main>
     </div>

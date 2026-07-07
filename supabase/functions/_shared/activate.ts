@@ -86,25 +86,36 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
     .eq('phone', phone)
     .maybeSingle()
 
-  const stillValid = cur?.active && (cur.access_expires_at == null || new Date(String(cur.access_expires_at)) > new Date())
-  if (stillValid) return { activated: false, alreadyActive: true }
-
-  const { ciclo } = await fetchPlan()
   const nowISO = new Date().toISOString()
+  const { ciclo } = await fetchPlan()
   const accessExpiresAt = addCiclo(nowISO, ciclo)
   const nome = opts.nome || cur?.full_name || ''
   const email = opts.email || cur?.email || ''
-
-  await supabase.from('australia_whv_subscribers').upsert({
-    phone,
-    payment_id: opts.paymentId ?? cur?.payment_id ?? null,
+  const setFields = {
     payment_status: 'approved',
     active: true,
     paid_at: nowISO,
     access_expires_at: accessExpiresAt,
+    payment_id: opts.paymentId ?? cur?.payment_id ?? null,
     ...(nome ? { full_name: nome } : {}),
     ...(email ? { email } : {}),
-  }, { onConflict: 'phone' })
+  }
+
+  // Claim ATÔMICO: só ativa se ainda NÃO está válido (active=false OU expirado).
+  // Vence a corrida entre webhook + polling do PIX → só 1 processo dispara
+  // DM/e-mail/Hub (os demais recebem 0 linhas e retornam alreadyActive).
+  if (cur) {
+    const { data: claimed } = await supabase
+      .from('australia_whv_subscribers')
+      .update(setFields)
+      .eq('phone', phone)
+      .or(`active.eq.false,access_expires_at.lte.${nowISO}`)
+      .select('id')
+    if (!claimed || claimed.length === 0) return { activated: false, alreadyActive: true }
+  } else {
+    // Sem linha prévia (não deveria ocorrer — process-payment cria pending): cria.
+    await supabase.from('australia_whv_subscribers').insert({ phone, ...setFields })
+  }
 
   const { data: cfg } = await supabase
     .from('australia_whv_monitor_config')

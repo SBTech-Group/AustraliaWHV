@@ -145,12 +145,21 @@ Deno.serve(async (req) => {
     }
     await log('success', 'check', { detected_status: detected, message: `Status de "${country}": ${detected}`, http_status: res.status, details: { snippet } })
 
+    // cfg = estado ANTERIOR (patchConfig grava no banco, não muta cfg em memória).
+    const wasOpen = cfg.last_detected_status === 'Open'
     if (detected === 'Open') {
       if (!cfg.opened_at) patch.opened_at = now
-      if (!cfg.notified_at) patch.notified_at = now   // marca 1º Open (exibição); alerta vai p/ o grupo
+      if (!cfg.notified_at) patch.notified_at = now
       await patchConfig(patch)
-      runInBackground(notifyOpenGroup(instance, cfg, url))
-      return { detected, notifying: true }
+      // Posta no grupo SOMENTE na TRANSIÇÃO para Open (evita re-postar a cada
+      // ciclo do cron enquanto continua Open → anti-ban).
+      if (!wasOpen) runInBackground(notifyOpenGroup(instance, cfg, url))
+      return { detected, notifying: !wasOpen }
+    }
+    // Saiu de Open (Closed/Paused) → reseta marcadores p/ o próximo Open re-alertar.
+    if (detected === 'Closed' || detected === 'Paused') {
+      if (cfg.opened_at) patch.opened_at = null
+      if (cfg.notified_at) patch.notified_at = null
     }
     await patchConfig(patch)
     return { detected }
@@ -189,13 +198,12 @@ Deno.serve(async (req) => {
     if (action === 'get_config') {
       const cfg = await getConfig()
       const nowISO = new Date().toISOString()
-      const [{ count: activeCount }, { count: notifiedCount }, { count: inGroupCount }, { count: overdueCount }] = await Promise.all([
+      const [{ count: activeCount }, { count: inGroupCount }, { count: overdueCount }] = await Promise.all([
         supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true),
-        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).not('notified_at', 'is', null),
         supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).eq('in_group', true),
         supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).not('access_expires_at', 'is', null).lt('access_expires_at', nowISO),
       ])
-      return json({ config: cfg, stats: { active: activeCount ?? 0, notified: notifiedCount ?? 0, in_group: inGroupCount ?? 0, overdue: overdueCount ?? 0 } })
+      return json({ config: cfg, stats: { active: activeCount ?? 0, in_group: inGroupCount ?? 0, overdue: overdueCount ?? 0 } })
     }
 
     if (action === 'save_config') {

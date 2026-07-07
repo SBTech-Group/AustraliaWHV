@@ -27,10 +27,6 @@ export async function evoFetch<T = unknown>(path: string, options: RequestInit =
   }
 }
 
-export function isEvoConfigured(): boolean {
-  return !!base() && !!apiKey()
-}
-
 // Só dígitos → JID de contato. Ex: '+55 11 9...' → '5511...@s.whatsapp.net'.
 export function numberToJid(phone: string): string {
   const n = phone.replace(/\D/g, '')

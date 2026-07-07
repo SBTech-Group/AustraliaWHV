@@ -3,9 +3,6 @@
 
 const PUBLIC_KEY = import.meta.env.VITE_MP_PUBLIC_KEY as string
 
-// Valor numérico cobrado (o backend é a fonte de verdade; aqui é só p/ exibir no Brick).
-export const MP_AMOUNT = Number(import.meta.env.VITE_PRODUCT_PRICE_NUM ?? '49.90')
-
 let instance: Promise<MercadoPagoInstance> | null = null
 
 export function loadMercadoPago(): Promise<MercadoPagoInstance> {

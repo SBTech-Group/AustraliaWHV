@@ -9,6 +9,7 @@ export interface MonitorStatus {
   opened_at: string | null
   country_name: string
   official_url: string
+  check_interval_minutes: number
 }
 
 export interface MonitorLog {
@@ -24,7 +25,6 @@ export interface Subscriber {
   id: string
   phone: string
   full_name: string | null
-  email: string | null
   active: boolean
   paid_at: string
   access_expires_at: string | null   // NULL = vitalício (assinantes legados)
@@ -57,7 +57,6 @@ export interface MonitorConfig {
 
 export interface AdminStats {
   active: number
-  notified: number
   in_group: number
   overdue: number
 }

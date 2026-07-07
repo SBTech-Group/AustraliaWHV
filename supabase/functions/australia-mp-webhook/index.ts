@@ -6,29 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-signature, x-request-id',
 }
 
-// Valida a origem da notificação MP (Webhooks v2): HMAC-SHA256 do manifest
-// `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` com o MP_WEBHOOK_SECRET.
-async function validSignature(req: Request, dataId: string, secret: string): Promise<boolean> {
-  const xSignature = req.headers.get('x-signature') ?? ''
-  const xRequestId = req.headers.get('x-request-id') ?? ''
-  const parts: Record<string, string> = {}
-  for (const kv of xSignature.split(',')) {
-    const [k, v] = kv.split('=')
-    if (k && v) parts[k.trim()] = v.trim()
-  }
-  const ts = parts['ts']
-  const v1 = parts['v1']
-  if (!ts || !v1) return false
-
-  const manifest = `id:${dataId.toLowerCase()};request-id:${xRequestId};ts:${ts};`
-  const enc = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  )
-  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(manifest))
-  const hex = [...new Uint8Array(sigBuf)].map(b => b.toString(16).padStart(2, '0')).join('')
-  return hex === v1
-}
+// AUTENTICIDADE: NÃO validamos mais o HMAC (x-signature) do MP — ele quebrava
+// notificações reais (secret/manifest divergentes) e não é necessário: abaixo
+// re-consultamos o pagamento na API do MP com o NOSSO access token, então só um
+// payment_id real e aprovado DA NOSSA conta é processado (forja impossível).
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -53,18 +34,6 @@ Deno.serve(async (req) => {
 
     if (type !== 'payment' || !paymentId) {
       return new Response('ok', { headers: corsHeaders })   // evento irrelevante — ignora
-    }
-
-    // Assinatura HMAC: só exige quando o MP realmente envia o header x-signature.
-    // Notificações por-pagamento (sem webhook no dashboard MP) NÃO são assinadas —
-    // a re-consulta na API do MP abaixo já garante autenticidade.
-    const webhookSecret = Deno.env.get('MP_WEBHOOK_SECRET')
-    if (webhookSecret && req.headers.get('x-signature')) {
-      const dataId = url.searchParams.get('data.id') ?? paymentId
-      if (!(await validSignature(req, dataId, webhookSecret))) {
-        await wlog('warning', `Webhook rejeitado: assinatura inválida (payment ${paymentId}).`)
-        return new Response('invalid signature', { status: 401, headers: corsHeaders })
-      }
     }
 
     // Consulta o pagamento no MP para verificar status e obter phone

@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { fetchPlan } from '../_shared/plan.ts'
+import { activateSubscriber } from '../_shared/activate.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -115,6 +116,12 @@ Deno.serve(async (req) => {
           ticket_url: td?.ticket_url ?? '',
         },
       })
+    }
+
+    // Cartão: a resposta é SÍNCRONA. Se já aprovou, ativa AQUI (não depende do
+    // webhook — que pode falhar/atrasar). Idempotente via activateSubscriber.
+    if (payment.status === 'approved') {
+      await activateSubscriber(supabase, { phone, paymentId: String(payment.id), nome: full_name, email })
     }
 
     return json({
