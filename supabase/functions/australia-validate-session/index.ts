@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
     const { data: cfg } = await supabase
       .from('australia_whv_monitor_config')
-      .select('support_whatsapp_number, support_default_message, contact_email, contact_text, whatsapp_group_name, whatsapp_group_invite_url')
+      .select('support_whatsapp_number, support_default_message, contact_text, instagram_url, whatsapp_group_name, whatsapp_group_invite_url')
       .eq('singleton_key', 'main')
       .maybeSingle()
 

@@ -36,8 +36,8 @@ export interface Subscriber {
 export interface UserRuntimeConfig {
   support_whatsapp_number: string | null
   support_default_message: string | null
-  contact_email: string | null
   contact_text: string | null
+  instagram_url: string | null
   whatsapp_group_name: string | null
   whatsapp_group_invite_url: string | null
 }
@@ -45,11 +45,10 @@ export interface UserRuntimeConfig {
 export interface PublicConfig {
   support_whatsapp_number: string | null
   support_default_message: string | null
-  contact_email: string | null
   contact_text: string
-  about_title: string
   about_body: string
   landing_trust_text: string
+  instagram_url: string | null
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -74,6 +73,7 @@ export interface MonitorConfig {
   about_title: string | null
   about_body: string | null
   landing_trust_text: string | null
+  instagram_url: string | null
   last_detected_status: DetectedStatus
   last_detected_raw: string | null
   last_checked_at: string | null
@@ -101,8 +101,13 @@ export interface AdminSubscriber {
   id: string
   phone: string
   full_name: string | null
+  email: string | null
+  status: string
+  plan_name: string | null
+  provision_status: string | null
   active: boolean
   in_group: boolean
+  group_added_at: string | null
   access_expires_at: string | null
   overdue: boolean            // access_expires_at < now
 }

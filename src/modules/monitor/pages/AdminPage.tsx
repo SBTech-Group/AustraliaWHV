@@ -30,7 +30,7 @@ export function AdminPage() {
   const navigate = useNavigate()
   const { data, isLoading } = useAdminConfig()
   const { data: logs = [], refetch: refetchLogs } = useAdminLogs()
-  const { data: subscribers = [] } = useSubscribers()
+  const { data: subscribers = [], refetch: refetchSubscribers, isFetching: subscribersFetching } = useSubscribers()
   const action = useAdminAction()
   const config = data?.config
   const stats = data?.stats
@@ -42,12 +42,10 @@ export function AdminPage() {
     country_name: 'Brazil',
     support_whatsapp_number: '',
     support_default_message: 'Ola, preciso de ajuda com meu acesso ao Australia WHV.',
-    contact_email: '',
     contact_text: '',
-    about_title: '',
     about_body: '',
     landing_trust_text: '',
-    whatsapp_group_invite_url: '',
+    instagram_url: '',
   })
   const [testNumber, setTestNumber] = useState('')
   const [connectOpen, setConnectOpen] = useState(false)
@@ -55,9 +53,6 @@ export function AdminPage() {
   const [loadGroups, setLoadGroups] = useState(false)
   const [selGroup, setSelGroup] = useState('')
   const { data: groups = [], isFetching: groupsBusy } = useGroups(loadGroups)
-  // Novo assinante (E.164 digitado à mão pelo admin).
-  const [subName, setSubName] = useState('')
-  const [subPhone, setSubPhone] = useState('')
   const [now, setNow] = useState(() => Date.now())
   const seeded = useRef(false)
   useEffect(() => {
@@ -74,12 +69,10 @@ export function AdminPage() {
         country_name: config.country_name,
         support_whatsapp_number: config.support_whatsapp_number ?? '',
         support_default_message: config.support_default_message ?? 'Ola, preciso de ajuda com meu acesso ao Australia WHV.',
-        contact_email: config.contact_email ?? '',
         contact_text: config.contact_text ?? '',
-        about_title: config.about_title ?? '',
         about_body: config.about_body ?? '',
         landing_trust_text: config.landing_trust_text ?? '',
-        whatsapp_group_invite_url: config.whatsapp_group_invite_url ?? '',
+        instagram_url: config.instagram_url ?? '',
       })
     }
   }, [config])
@@ -130,18 +123,28 @@ export function AdminPage() {
     }
   }
 
-  const addSub = async () => {
-    const phone = subPhone.trim(), full_name = subName.trim()
-    if (!phone || !full_name) { toast.error('Informe nome e telefone'); return }
-    try {
-      toast.info('Adicionando…')
-      await action.mutateAsync({ action: 'add_subscriber', phone, full_name })
-      toast.success('Assinante adicionado'); setSubName(''); setSubPhone('')
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Falha') }
+  const addSub = (s: typeof subscribers[number]) => {
+    if (!s.phone) { toast.error('Assinante sem telefone no Hub'); return }
+    run({
+      action: 'add_subscriber_to_group',
+      phone: s.phone,
+      full_name: s.full_name,
+      email: s.email,
+      active: s.active,
+      access_expires_at: s.access_expires_at,
+    }, 'Assinante adicionado ao grupo', 'Adicionando ao grupo...')
   }
-  const removeSub = (phone: string) => {
-    if (confirm(`Remover assinante ${phone}?`)) run({ action: 'remove_subscriber', phone }, 'Assinante removido', 'Removendo…')
-  }
+  const removeSub = (s: typeof subscribers[number]) => {
+    if (!confirm(`Remover ${s.phone} do grupo de alertas?`)) return
+    run({
+      action: 'remove_subscriber_from_group',
+      phone: s.phone,
+      full_name: s.full_name,
+      email: s.email,
+      active: s.active,
+      access_expires_at: s.access_expires_at,
+    }, 'Assinante removido do grupo', 'Removendo do grupo...')
+    }
   const overdueCount = subscribers.filter((s) => s.active && s.overdue).length
 
   const detected = (config?.last_detected_status ?? 'Unknown') as DetectedStatus
@@ -263,9 +266,9 @@ export function AdminPage() {
           </div>
         </div>
 
-        {/* Conteudo publico / suporte */}
+        {/* Contato */}
         <div style={{ ...S.card, marginBottom: 16 }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: 15 }}>Suporte e conteudo publico</h2>
+          <h2 style={{ margin: '0 0 16px', fontSize: 15 }}>Contato</h2>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label style={S.label}>WhatsApp oficial de suporte</label>
@@ -273,9 +276,9 @@ export function AdminPage() {
                 onChange={(e) => setForm((f) => ({ ...f, support_whatsapp_number: e.target.value }))} />
             </div>
             <div>
-              <label style={S.label}>E-mail de contato</label>
-              <input style={S.input} placeholder="contato@..." value={form.contact_email}
-                onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} />
+              <label style={S.label}>Perfil do Instagram</label>
+              <input style={S.input} placeholder="https://instagram.com/sbtechgroup" value={form.instagram_url}
+                onChange={(e) => setForm((f) => ({ ...f, instagram_url: e.target.value }))} />
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -283,41 +286,28 @@ export function AdminPage() {
             <input style={S.input} value={form.support_default_message}
               onChange={(e) => setForm((f) => ({ ...f, support_default_message: e.target.value }))} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={S.label}>Titulo "Sobre nos"</label>
-              <input style={S.input} value={form.about_title}
-                onChange={(e) => setForm((f) => ({ ...f, about_title: e.target.value }))} />
-            </div>
-            <div>
-              <label style={S.label}>Texto de confianca da landing</label>
-              <input style={S.input} value={form.landing_trust_text}
-                onChange={(e) => setForm((f) => ({ ...f, landing_trust_text: e.target.value }))} />
-            </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={S.label}>Texto de confianca da landing</label>
+            <input style={S.input} value={form.landing_trust_text}
+              onChange={(e) => setForm((f) => ({ ...f, landing_trust_text: e.target.value }))} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={S.label}>Texto "Sobre nos"</label>
-              <textarea style={S.textarea} value={form.about_body}
-                onChange={(e) => setForm((f) => ({ ...f, about_body: e.target.value }))} />
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={S.label}>Texto de contato</label>
               <textarea style={S.textarea} value={form.contact_text}
                 onChange={(e) => setForm((f) => ({ ...f, contact_text: e.target.value }))} />
             </div>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={S.label}>Link manual do grupo WhatsApp</label>
-            <input style={S.input} placeholder="https://chat.whatsapp.com/..." value={form.whatsapp_group_invite_url}
-              onChange={(e) => setForm((f) => ({ ...f, whatsapp_group_invite_url: e.target.value }))} />
+            <div>
+              <label style={S.label}>Texto institucional</label>
+              <textarea style={S.textarea} value={form.about_body}
+                onChange={(e) => setForm((f) => ({ ...f, about_body: e.target.value }))} />
+            </div>
           </div>
           <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
-            onClick={() => run({ action: 'save_config', payload: form }, 'Config publica salva', 'Salvando...')}>
-            <Save size={15} strokeWidth={1.75} /> Salvar suporte e conteudo
+            onClick={() => run({ action: 'save_config', payload: form }, 'Contato salvo', 'Salvando...')}>
+            <Save size={15} strokeWidth={1.75} /> Salvar contato
           </button>
         </div>
-
         {/* Grupo de alertas */}
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: '0 0 16px', fontSize: 15 }}><Users size={15} strokeWidth={1.75} style={{ verticalAlign: 'middle', marginRight: 6, color: '#4FCB8E' }} />Grupo de alertas (WhatsApp)</h2>
@@ -351,35 +341,49 @@ export function AdminPage() {
 
         {/* Assinantes */}
         <div style={{ ...S.card, marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 15 }}>Assinantes ({subscribers.length})</h2>
-            {overdueCount > 0 && <span style={{ fontSize: 12, color: '#F26D70' }}>{overdueCount} vencido(s)</span>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 15 }}>Assinantes ({subscribers.length})</h2>
+              <div style={{ color: '#888', fontSize: 12, marginTop: 4 }}>Fonte: Hub SB Tech. Este painel controla apenas entrada/saida do grupo.</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {overdueCount > 0 && <span style={{ fontSize: 12, color: '#F26D70' }}>{overdueCount} vencido(s)</span>}
+              <button style={S.btn} disabled={subscribersFetching} onClick={() => refetchSubscribers()}>
+                <RefreshCw size={15} strokeWidth={1.75} /> {subscribersFetching ? 'Atualizando...' : 'Atualizar Hub'}
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-            <input style={{ ...S.input, flex: 2, minWidth: 160 }} placeholder="Nome completo" value={subName} onChange={(e) => setSubName(e.target.value)} />
-            <input style={{ ...S.input, flex: 1, minWidth: 140 }} placeholder="+5511999999999" value={subPhone} onChange={(e) => setSubPhone(e.target.value)} />
-            <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending || !subName.trim() || !subPhone.trim()} onClick={addSub}><UserPlus size={15} strokeWidth={1.75} /> Adicionar</button>
-          </div>
-          {subscribers.length === 0 ? <div style={{ color: '#888' }}>Nenhum assinante.</div> : (
+          {subscribers.length === 0 ? <div style={{ color: '#888' }}>Nenhum assinante retornado pelo Hub.</div> : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ color: '#888', textAlign: 'left' }}>
                   <th style={{ padding: '6px 8px' }}>Nome</th><th style={{ padding: '6px 8px' }}>Telefone</th>
-                  <th style={{ padding: '6px 8px' }}>Status</th><th style={{ padding: '6px 8px' }}>Acesso</th>
-                  <th style={{ padding: '6px 8px' }}>Grupo</th><th style={{ padding: '6px 8px' }}>Ação</th>
+                  <th style={{ padding: '6px 8px' }}>Hub</th><th style={{ padding: '6px 8px' }}>Plano</th>
+                  <th style={{ padding: '6px 8px' }}>Acesso</th><th style={{ padding: '6px 8px' }}>Grupo</th><th style={{ padding: '6px 8px' }}>Acao</th>
                 </tr></thead>
                 <tbody>
                   {subscribers.map((s) => (
                     <tr key={s.id} style={{ borderTop: '1px solid #222', background: s.overdue ? 'rgba(242,109,112,0.07)' : undefined }}>
-                      <td style={{ padding: '6px 8px' }}>{s.full_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{s.phone}</td>
-                      <td style={{ padding: '6px 8px', color: s.active ? '#4FCB8E' : '#888' }}>{s.active ? 'Ativo' : 'Inativo'}</td>
+                      <td style={{ padding: '6px 8px' }}>{s.full_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{s.phone || '-'}</td>
+                      <td style={{ padding: '6px 8px', color: s.active ? '#4FCB8E' : '#888' }}>{s.status}</td>
+                      <td style={{ padding: '6px 8px', color: '#9a9a9a' }}>{s.plan_name ?? '-'}</td>
                       <td style={{ padding: '6px 8px', color: s.overdue ? '#F26D70' : '#9a9a9a' }}>
-                        {s.overdue ? 'Vencido' : s.access_expires_at ? `ok até ${fmt(s.access_expires_at)}` : 'vitalício'}
+                        {s.overdue ? 'Vencido' : s.access_expires_at ? `ok ate ${fmt(s.access_expires_at)}` : 'sem vencimento'}
                       </td>
-                      <td style={{ padding: '6px 8px' }}>{s.in_group ? '✓' : '—'}</td>
+                      <td style={{ padding: '6px 8px', color: s.in_group ? '#4FCB8E' : '#E2BE6A' }}>
+                        {s.in_group ? 'No grupo' : 'Fora do grupo'}
+                      </td>
                       <td style={{ padding: '6px 8px' }}>
-                        <button style={{ ...S.btn, height: 30, padding: '0 8px', color: '#F26D70' }} disabled={action.isPending} onClick={() => removeSub(s.phone)}><Trash2 size={14} strokeWidth={1.75} /> Remover</button>
+                        {s.in_group ? (
+                          <button style={{ ...S.btn, height: 30, padding: '0 8px', color: '#F26D70' }} disabled={action.isPending || !s.phone} onClick={() => removeSub(s)}>
+                            <Trash2 size={14} strokeWidth={1.75} /> Remover
+                          </button>
+                        ) : (
+                          <button style={{ ...S.btn, ...S.btnPrimary, height: 30, padding: '0 8px' }} disabled={action.isPending || !s.phone || !s.active} onClick={() => addSub(s)}>
+                            <UserPlus size={14} strokeWidth={1.75} /> Adicionar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -388,7 +392,6 @@ export function AdminPage() {
             </div>
           )}
         </div>
-
         {/* Logs */}
         <div style={S.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

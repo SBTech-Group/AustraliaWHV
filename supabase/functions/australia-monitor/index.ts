@@ -14,7 +14,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { fetchGroups, groupInviteUrl, addParticipants, removeParticipants, sendText } from '../_shared/evolution.ts'
-import { addCiclo, fetchPlan } from '../_shared/plan.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -73,6 +72,33 @@ function mapEvoStatus(s: string) {
   }
 }
 
+type HubSubscriber = {
+  id: string
+  status: string
+  inicio: string | null
+  fim: string | null
+  full_name: string | null
+  email: string | null
+  phone: string
+  plan_name: string | null
+  provision_status: string | null
+}
+
+function phoneKey(phone: string) {
+  return String(phone ?? '').replace(/\D/g, '')
+}
+
+function endOfDayIso(date: string | null) {
+  if (!date) return null
+  return `${date}T23:59:59.999Z`
+}
+
+function isHubActive(status: string, fim: string | null) {
+  if (status !== 'ativa' && status !== 'trialing') return false
+  const accessEnd = endOfDayIso(fim)
+  return !accessEnd || new Date(accessEnd) >= new Date()
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -99,6 +125,71 @@ Deno.serve(async (req) => {
   async function patchConfig(patch: Record<string, unknown>) {
     const { data } = await supabase.from('australia_whv_monitor_config').update(patch).eq('singleton_key', 'main').select().single()
     return (data ?? {}) as Record<string, unknown>
+  }
+
+  async function fetchHubSubscribers(): Promise<HubSubscriber[]> {
+    const hubUrl = (Deno.env.get('HUB_FUNCTIONS_URL') ?? '').replace(/\/$/, '')
+    const hubToken = Deno.env.get('HUB_PROVISIONING_TOKEN') ?? ''
+    const productSlug = Deno.env.get('HUB_PRODUCT_SLUG') ?? 'australiawhv'
+    if (!hubUrl || !hubToken) throw new Error('Hub nao configurado: HUB_FUNCTIONS_URL/HUB_PROVISIONING_TOKEN')
+
+    const res = await fetch(`${hubUrl}/hub-product-subscribers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${hubToken}` },
+      body: JSON.stringify({ produto: productSlug }),
+    })
+    const data = await res.json().catch(() => ({} as Record<string, unknown>))
+    if (!res.ok) throw new Error(String((data as { error?: string }).error ?? `Hub HTTP ${res.status}`))
+    return ((data as { subscribers?: HubSubscriber[] }).subscribers ?? []).filter((s) => phoneKey(s.phone))
+  }
+
+  async function listHubSubscribersWithGroup() {
+    const hubSubscribers = await fetchHubSubscribers()
+    const phones = hubSubscribers.map((s) => s.phone)
+    const localByPhone = new Map<string, Record<string, unknown>>()
+
+    if (phones.length > 0) {
+      const { data } = await supabase
+        .from('australia_whv_subscribers')
+        .select('phone, in_group, group_added_at')
+        .limit(2000)
+      for (const row of data ?? []) localByPhone.set(phoneKey(String(row.phone)), row as Record<string, unknown>)
+    }
+
+    return hubSubscribers.map((s) => {
+      const local = localByPhone.get(phoneKey(s.phone))
+      const accessEnd = endOfDayIso(s.fim)
+      const overdue = !!accessEnd && new Date(accessEnd) < new Date()
+      return {
+        id: s.id,
+        phone: s.phone,
+        full_name: s.full_name,
+        email: s.email,
+        status: s.status,
+        plan_name: s.plan_name,
+        provision_status: s.provision_status,
+        active: isHubActive(s.status, s.fim),
+        in_group: !!local?.in_group,
+        group_added_at: (local?.group_added_at as string | null | undefined) ?? null,
+        access_expires_at: accessEnd,
+        overdue,
+      }
+    })
+  }
+
+  async function saveGroupState(input: Record<string, unknown>, inGroup: boolean) {
+    const now = new Date().toISOString()
+    const phone = String(input.phone ?? '').trim()
+    await supabase.from('australia_whv_subscribers').upsert({
+      phone,
+      full_name: input.full_name ? String(input.full_name) : null,
+      email: input.email ? String(input.email) : null,
+      active: input.active !== false,
+      access_expires_at: input.access_expires_at ? String(input.access_expires_at) : null,
+      payment_status: 'hub',
+      in_group: inGroup,
+      group_added_at: inGroup ? now : null,
+    }, { onConflict: 'phone' })
   }
 
   async function cleanupEphemeralData() {
@@ -212,13 +303,20 @@ Deno.serve(async (req) => {
     // ── Admin ────────────────────────────────────────────────────────────────
     if (action === 'get_config') {
       const cfg = await getConfig()
-      const nowISO = new Date().toISOString()
-      const [{ count: activeCount }, { count: inGroupCount }, { count: overdueCount }] = await Promise.all([
-        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true),
-        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).eq('in_group', true),
-        supabase.from('australia_whv_subscribers').select('id', { count: 'exact', head: true }).eq('active', true).not('access_expires_at', 'is', null).lt('access_expires_at', nowISO),
-      ])
-      return json({ config: cfg, stats: { active: activeCount ?? 0, in_group: inGroupCount ?? 0, overdue: overdueCount ?? 0 } })
+      try {
+        const subscribers = await listHubSubscribersWithGroup()
+        return json({
+          config: cfg,
+          stats: {
+            active: subscribers.filter((s) => s.active).length,
+            in_group: subscribers.filter((s) => s.active && s.in_group).length,
+            overdue: subscribers.filter((s) => s.overdue).length,
+          },
+        })
+      } catch (err) {
+        await log('warning', 'hub_subscribers', { message: `Falha ao consultar assinantes no Hub: ${(err as Error).message}` })
+        return json({ config: cfg, stats: { active: 0, in_group: 0, overdue: 0 }, hub_error: (err as Error).message })
+      }
     }
 
     if (action === 'save_config') {
@@ -231,12 +329,10 @@ Deno.serve(async (req) => {
         'whatsapp_instance_name',
         'support_whatsapp_number',
         'support_default_message',
-        'contact_email',
         'contact_text',
-        'about_title',
         'about_body',
         'landing_trust_text',
-        'whatsapp_group_invite_url',
+        'instagram_url',
       ] as const) {
         if (k in p) patch[k] = p[k]
       }
@@ -245,13 +341,13 @@ Deno.serve(async (req) => {
         patch.check_interval_minutes = Number.isFinite(n) ? Math.min(60, Math.max(1, Math.round(n))) : 2
       }
       if ('whatsapp_instance_name' in patch) patch.whatsapp_instance_name = String(patch.whatsapp_instance_name).trim() || 'australia_whv_saas'
-      for (const k of ['support_whatsapp_number', 'contact_email', 'whatsapp_group_invite_url'] as const) {
+      for (const k of ['support_whatsapp_number', 'instagram_url'] as const) {
         if (k in patch) {
           const value = String(patch[k] ?? '').trim()
           patch[k] = value || null
         }
       }
-      for (const k of ['support_default_message', 'contact_text', 'about_title', 'about_body', 'landing_trust_text'] as const) {
+      for (const k of ['support_default_message', 'contact_text', 'about_body', 'landing_trust_text'] as const) {
         if (k in patch) patch[k] = String(patch[k] ?? '').trim().slice(0, 3000)
       }
       const cfg = await patchConfig(patch)
@@ -357,50 +453,34 @@ Deno.serve(async (req) => {
 
     // ── Assinantes ─────────────────────────────────────────────────────────────
     if (action === 'list_subscribers') {
-      const { data } = await supabase
-        .from('australia_whv_subscribers')
-        .select('id, phone, full_name, active, in_group, access_expires_at')
-        .order('paid_at', { ascending: false, nullsFirst: false })
-        .limit(500)
-      const subscribers = (data ?? []).map((s: Record<string, unknown>) => ({
-        ...s,
-        overdue: !!s.access_expires_at && new Date(String(s.access_expires_at)) < new Date(),
-      }))
-      return json({ subscribers })
+      return json({ subscribers: await listHubSubscribersWithGroup() })
     }
 
-    if (action === 'add_subscriber') {
+    if (action === 'add_subscriber_to_group') {
       const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
       const phone = String(body.phone ?? '').trim()
       const full_name = String(body.full_name ?? '').trim()
-      if (!full_name) return json({ error: 'Nome obrigatório' }, 400)
-      if (!phone || phone.replace(/\D/g, '').length < 8) return json({ error: 'Telefone inválido — use E.164 (ex: +5511...)' }, 400)
-      const now = new Date().toISOString()
-      const ciclo = (await fetchPlan()).ciclo
-      await supabase.from('australia_whv_subscribers').upsert(
-        { phone, full_name, active: true, paid_at: now, access_expires_at: addCiclo(now, ciclo), payment_status: 'manual' },
-        { onConflict: 'phone' },
-      )
+      if (!phone || phoneKey(phone).length < 8) return json({ error: 'Telefone invalido no Hub' }, 400)
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
-      let add: { ok: boolean } | null = null
-      if (jid) {
-        add = await addParticipants(instance, jid, [phone])
-        await supabase.from('australia_whv_subscribers').update({ in_group: add.ok, group_added_at: add.ok ? now : null }).eq('phone', phone)
-        if (!add.ok) await log('warning', 'group_add', { message: `Falha ao adicionar assinante ao grupo: ${phone}.`, details: { evo: add } })
+      if (!jid) return json({ error: 'Nenhum grupo definido' }, 400)
+      const add = await addParticipants(instance, jid, [phoneKey(phone)])
+      await saveGroupState({ ...body, phone, full_name }, add.ok)
+      if (!add.ok) {
+        await log('warning', 'group_add', { message: `Falha ao adicionar assinante ao grupo: ${phone}.`, details: { evo: add } })
+        return json({ error: 'Falha ao adicionar no grupo', details: add.data }, 502)
       }
-      await log('success', 'add_subscriber', { message: `Assinante adicionado: ${full_name} (${phone}).`, details: { in_group: add?.ok ?? false } })
-      return json({ ok: true, in_group: add?.ok ?? false })
+      await log('success', 'group_add', { message: `Assinante adicionado ao grupo: ${full_name || phone}.` })
+      return json({ ok: true, in_group: true })
     }
 
-    if (action === 'remove_subscriber') {
+    if (action === 'remove_subscriber_from_group') {
       const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
       const phone = String(body.phone ?? '').trim()
-      if (!phone) return json({ error: 'Telefone obrigatório' }, 400)
-      // 1) tira do grupo (best-effort) 2) APAGA a linha do banco (some da lista)
+      if (!phone) return json({ error: 'Telefone obrigatorio' }, 400)
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
-      if (jid) await removeParticipants(instance, jid, [phone])
-      await supabase.from('australia_whv_subscribers').delete().eq('phone', phone)
-      await log('warning', 'remove_subscriber', { message: `Assinante removido (grupo + banco): ${phone}.` })
+      if (jid) await removeParticipants(instance, jid, [phoneKey(phone)])
+      await saveGroupState({ ...body, phone }, false)
+      await log('warning', 'group_remove', { message: `Assinante removido do grupo: ${phone}.` })
       return json({ ok: true })
     }
 
@@ -408,19 +488,18 @@ Deno.serve(async (req) => {
       const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
       if (!jid) return json({ error: 'Nenhum grupo definido' }, 400)
-      const { data } = await supabase.from('australia_whv_subscribers').select('id, phone').eq('active', true).eq('in_group', false)
-      const list = data ?? []
+      const list = (await listHubSubscribersWithGroup()).filter((s) => s.active && !s.in_group)
       let added = 0
       for (const s of list) {
-        const add = await addParticipants(instance, jid, [String(s.phone)])
-        if (add.ok) { await supabase.from('australia_whv_subscribers').update({ in_group: true, group_added_at: new Date().toISOString() }).eq('id', s.id); added++ }
+        const add = await addParticipants(instance, jid, [phoneKey(String(s.phone))])
+        await saveGroupState(s, add.ok)
+        if (add.ok) added++
         else await log('warning', 'sync_group', { message: `Falha ao adicionar ${String(s.phone)} ao grupo.`, details: { evo: add } })
         await sleep(800)   // throttle anti-ban
       }
-      await log('info', 'sync_group', { message: `Sincronização do grupo: ${added}/${list.length} adicionado(s).` })
+      await log('info', 'sync_group', { message: `Sincronizacao do grupo: ${added}/${list.length} adicionado(s).` })
       return json({ added, total: list.length })
     }
-
     return json({ error: `Ação desconhecida: ${action}` }, 400)
   } catch (err) {
     await log('error', action || 'unknown', { message: `Erro inesperado: ${(err as Error).message}` })

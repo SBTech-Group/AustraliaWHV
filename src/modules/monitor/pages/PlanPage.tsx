@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { usePlan, cicloLabel } from '../../../lib/plan'
 import { fmtDateTime } from '../../../lib/cron'
-import { mailtoUrl, whatsappUrl } from '../../../lib/contact'
+import { whatsappUrl } from '../../../lib/contact'
 
 export function PlanPage() {
   const navigate = useNavigate()
@@ -16,7 +16,6 @@ export function PlanPage() {
 
   const expira = subscriber?.access_expires_at
   const supportHref = whatsappUrl(userConfig?.support_whatsapp_number, userConfig?.support_default_message)
-  const emailHref = mailtoUrl(userConfig?.contact_email, 'Suporte Australia WHV')
   const groupInvite = userConfig?.whatsapp_group_invite_url?.trim() || ''
   const groupName = userConfig?.whatsapp_group_name?.trim() || 'grupo de alertas'
 
@@ -105,10 +104,6 @@ export function PlanPage() {
             {supportHref ? (
               <a className="btn-outline-sm" href={supportHref} target="_blank" rel="noopener noreferrer">
                 <LifeBuoy size={13} /> Falar no WhatsApp
-              </a>
-            ) : emailHref ? (
-              <a className="btn-outline-sm" href={emailHref}>
-                <LifeBuoy size={13} /> Falar com suporte
               </a>
             ) : (
               <button className="btn-outline-sm" disabled>
