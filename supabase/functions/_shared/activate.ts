@@ -135,6 +135,21 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
     await supabase.from('australia_whv_subscribers')
       .update({ in_group: add.ok, group_added_at: add.ok ? nowISO : null })
       .eq('phone', phone)
+    if (!add.ok) {
+      await supabase.from('australia_whv_monitor_logs').insert({
+        level: 'warning',
+        action: 'group_add',
+        message: `Falha ao adicionar assinante ao grupo: ${phone}.`,
+        http_status: add.status,
+        details: { evo: add.data },
+      }).then(() => {}, () => {})
+    }
+  } else {
+    await supabase.from('australia_whv_monitor_logs').insert({
+      level: 'warning',
+      action: 'group_add',
+      message: `Grupo nao configurado para novo assinante: ${phone}.`,
+    }).then(() => {}, () => {})
   }
 
   // ── DM de boas-vindas (WhatsApp) ────────────────────────────────────────────

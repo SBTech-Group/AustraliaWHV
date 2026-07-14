@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, CheckCircle2, CreditCard, ExternalLink, LogOut, RefreshCw } from 'lucide-react'
+import { Activity, CheckCircle2, CreditCard, ExternalLink, LogOut, RefreshCw, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
@@ -30,7 +30,7 @@ function useMonitorStatus() {
 }
 
 export function MonitorPage() {
-  const { subscriber, logout } = useAuth()
+  const { subscriber, userConfig, logout } = useAuth()
   const navigate = useNavigate()
   const { data: status, isLoading } = useMonitorStatus()
   const [now, setNow] = useState(() => Date.now())
@@ -46,6 +46,7 @@ export function MonitorPage() {
 
   const nome = subscriber?.full_name?.trim() || subscriber?.phone || 'Assinante'
   const expira = subscriber?.access_expires_at
+  const groupInvite = userConfig?.whatsapp_group_invite_url?.trim() || ''
 
   const handleLogout = () => {
     logout()
@@ -126,10 +127,20 @@ export function MonitorPage() {
               <div className="meta-row muted" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
                 {expira ? `Renova/expira em ${fmtDateTime(expira)}` : 'Acesso vitalício'}
               </div>
+              <div className="meta-row muted" style={{ justifyContent: 'flex-start', marginTop: 4 }}>
+                <Users size={12} /> Grupo: {subscriber?.in_group ? 'adicionado' : 'pendente'}
+              </div>
             </div>
-            <button className="btn-outline-sm" onClick={() => navigate('/monitor/plano')}>
-              <CreditCard size={13} /> Gerenciar assinatura
-            </button>
+            <div className="access-actions">
+              {!subscriber?.in_group && groupInvite && (
+                <a className="btn-outline-sm" href={groupInvite} target="_blank" rel="noopener noreferrer">
+                  <Users size={13} /> Entrar no grupo
+                </a>
+              )}
+              <button className="btn-outline-sm" onClick={() => navigate('/monitor/plano')}>
+                <CreditCard size={13} /> Gerenciar assinatura
+              </button>
+            </div>
           </div>
         </div>
       </main>

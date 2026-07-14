@@ -837,6 +837,34 @@ input { font-family: inherit; }
 .lp .pricing-badge { background: rgba(79,203,142,0.12); }
 .lp .landing-footer { border-top-color: rgba(0,0,0,0.08); color: #999; }
 
+.lp-trust-section { padding-top: 80px; }
+.lp-trust-lead,
+.lp-info-copy {
+  max-width: 680px;
+  margin: -28px auto 32px;
+  color: var(--fg-2);
+  font-size: 16px;
+  line-height: 1.7;
+  text-align: center;
+}
+.lp-trust-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.lp-info-section { text-align: center; }
+.lp-contact-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lp-contact-btn {
+  width: auto;
+  min-width: 190px;
+  justify-content: center;
+}
+
 /* RESPONSIVE */
 @media (max-width: 720px) {
   .lp-nav { padding: 14px 20px; }
@@ -900,6 +928,26 @@ input { font-family: inherit; }
   gap: 10px;
 }
 .plan-actions .cancel-link { margin-top: 0; }
+.ok-inline {
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.plan-state-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.muted-copy { color: var(--fg-3); }
+.access-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 .monitor-main {
   flex: 1;
@@ -962,6 +1010,8 @@ input { font-family: inherit; }
 
 @media (max-width: 560px) {
   .access-card-row { flex-direction: column; align-items: flex-start; }
+  .access-actions { justify-content: flex-start; }
+  .plan-state-row { flex-direction: column; }
   .cron-next { grid-template-columns: 1fr; gap: 2px; }
 }
 

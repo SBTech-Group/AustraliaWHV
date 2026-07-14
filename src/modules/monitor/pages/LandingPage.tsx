@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, CheckCircle2, Globe, MessageCircle, Shield, Zap, Clock, X, Check } from 'lucide-react'
+import { Bell, CheckCircle2, Globe, MessageCircle, Shield, Zap, Clock, X, Check, Mail, Users } from 'lucide-react'
 import { Logo } from '../../../components/Logo'
 import { PhoneInput } from '../../../components/PhoneInput'
 import { DEFAULT_COUNTRY, toE164, type Country } from '../../../lib/countries'
 import { usePlan, cicloLabel } from '../../../lib/plan'
+import { usePublicConfig } from '../../../lib/publicConfig'
+import { mailtoUrl, whatsappUrl } from '../../../lib/contact'
 
 const POOL  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
@@ -179,10 +181,13 @@ function useScrollReveal() {
 export function LandingPage() {
   const navigate   = useNavigate()
   const { data: plan } = usePlan()
+  const { data: publicConfig } = usePublicConfig()
   const periodo    = cicloLabel(plan.ciclo).replace(/^por\s+/, '/ ')  // 'anual' → '/ ano'
   const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY)
   const [phone, setPhone] = useState('')
   const lastCheck  = useLastCheck()
+  const supportHref = whatsappUrl(publicConfig?.support_whatsapp_number, publicConfig?.support_default_message)
+  const emailHref = mailtoUrl(publicConfig?.contact_email, 'Contato Australia WHV')
   useScrollReveal()
 
   return (
@@ -201,6 +206,14 @@ export function LandingPage() {
           <button className="lp-nav-link"
             onClick={() => document.getElementById('preco')?.scrollIntoView({ behavior: 'smooth' })}>
             Preço
+          </button>
+          <button className="lp-nav-link"
+            onClick={() => document.getElementById('sobre')?.scrollIntoView({ behavior: 'smooth' })}>
+            Sobre
+          </button>
+          <button className="lp-nav-link"
+            onClick={() => document.getElementById('contato')?.scrollIntoView({ behavior: 'smooth' })}>
+            Contato
           </button>
           <button className="btn-outline" onClick={() => navigate('/login')}>
             Já sou assinante
@@ -347,6 +360,28 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* TRUST FLOW */}
+      <section className="section lp-trust-section">
+        <div className="lp-section-label" data-reveal>Depois do pagamento</div>
+        <h2 className="section-title" data-reveal>Acesso claro, sem ficar perdido</h2>
+        <p className="lp-trust-lead" data-reveal>
+          {publicConfig?.landing_trust_text}
+        </p>
+        <div className="lp-trust-grid">
+          {[
+            { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp confirmado', desc: 'Antes de pagar, voce confirma o numero com um codigo enviado pelo WhatsApp.' },
+            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />, title: 'Painel liberado', desc: 'Com o pagamento aprovado, o login usa codigo no mesmo numero cadastrado.' },
+            { icon: <Users size={20} strokeWidth={1.75} />, title: 'Grupo com fallback', desc: 'Se a entrada automatica no grupo falhar, o painel mostra convite e suporte.' },
+          ].map((item, i) => (
+            <div className="feature-card" key={item.title} data-reveal style={{ transitionDelay: `${i * 100}ms` }}>
+              <div className="feature-icon">{item.icon}</div>
+              <h4>{item.title}</h4>
+              <p>{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* PRICING */}
       <section className="section" id="preco">
         <h2 className="section-title" data-reveal>Simples e direto</h2>
@@ -361,6 +396,36 @@ export function LandingPage() {
             <li><CheckCircle2 size={16} /> Monitoramento 24h por dia</li>
           </ul>
           <button className="btn-primary-lg" onClick={() => navigate('/comprar')}>Começar agora</button>
+        </div>
+      </section>
+
+      {/* ABOUT */}
+      <section className="section section-dark lp-info-section" id="sobre">
+        <div className="lp-section-label" data-reveal>Sobre nos</div>
+        <h2 className="section-title" data-reveal>{publicConfig?.about_title}</h2>
+        <p className="lp-info-copy" data-reveal>
+          {publicConfig?.about_body}
+        </p>
+      </section>
+
+      {/* CONTACT */}
+      <section className="section lp-info-section" id="contato">
+        <div className="lp-section-label" data-reveal>Contato</div>
+        <h2 className="section-title" data-reveal>Precisa falar com a gente?</h2>
+        <p className="lp-info-copy" data-reveal>
+          {publicConfig?.contact_text}
+        </p>
+        <div className="lp-contact-actions" data-reveal>
+          {supportHref && (
+            <a className="btn-primary-lg lp-contact-btn" href={supportHref} target="_blank" rel="noopener noreferrer">
+              <MessageCircle size={16} /> Falar no WhatsApp
+            </a>
+          )}
+          {emailHref && (
+            <a className="btn-outline lp-contact-btn" href={emailHref}>
+              <Mail size={16} /> Enviar e-mail
+            </a>
+          )}
         </div>
       </section>
 

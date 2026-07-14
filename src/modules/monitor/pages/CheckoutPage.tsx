@@ -51,6 +51,10 @@ export function CheckoutPage() {
   const [copied, setCopied] = useState(false)
   const [pixLoading, setPixLoading] = useState(false)
   const [contactConfirmed, setContactConfirmed] = useState(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otp, setOtp] = useState('')
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [checkoutVerificationToken, setCheckoutVerificationToken] = useState('')
 
   // Pré-checagem de acesso ao entrar no passo 'method'.
   const [checkingAccess, setCheckingAccess] = useState(false)
@@ -78,12 +82,59 @@ export function CheckoutPage() {
     }
     setFullPhone(toE164(country.code, digits))
     setContactConfirmed(false)
+    setOtpSent(false)
+    setOtp('')
+    setCheckoutVerificationToken('')
     setHasActiveAccess(false)
     setAccessExpiresAt(null)
     setStep('confirm')
   }
 
   // ── Pré-checagem: já possui acesso ativo? ──────────────────────────────────
+  const sendCheckoutOtp = async () => {
+    if (!contactConfirmed) {
+      toast.error('Confirme que os dados estao corretos antes de receber o codigo.')
+      return
+    }
+    setOtpLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('australia-send-otp', {
+        body: { phone: fullPhone, purpose: 'checkout' },
+      })
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Erro ao enviar codigo')
+      setOtpSent(true)
+      setOtp('')
+      toast.success('Codigo enviado no WhatsApp.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao enviar codigo.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const verifyCheckoutOtp = async () => {
+    if (otp.length !== 6) {
+      toast.error('Digite o codigo de 6 digitos.')
+      return
+    }
+    setOtpLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('australia-verify-otp', {
+        body: { phone: fullPhone, code: otp, purpose: 'checkout' },
+      })
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Codigo invalido ou expirado')
+      const token = data?.checkout_verification_token as string | undefined
+      if (!token) throw new Error('Nao foi possivel confirmar o WhatsApp.')
+      setCheckoutVerificationToken(token)
+      toast.success('WhatsApp confirmado.')
+      setStep('method')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Codigo invalido.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (step !== 'method' || !fullPhone) return
     let cancelled = false
@@ -103,6 +154,11 @@ export function CheckoutPage() {
 
   // ── PIX direto: gera QR na hora usando os dados de contato ─────────────────
   const handlePix = async () => {
+    if (!checkoutVerificationToken) {
+      toast.error('Confirme seu WhatsApp antes de pagar.')
+      setStep('confirm')
+      return
+    }
     setPixLoading(true)
     try {
       const { data, error } = await supabase.functions.invoke('australia-process-payment', {
@@ -112,6 +168,7 @@ export function CheckoutPage() {
           email,
           selectedPaymentMethod: 'pix',
           formData: { payer: { email } },
+          checkout_verification_token: checkoutVerificationToken,
         },
       })
       if (error) throw new Error(await serverErrMsg(error, 'Erro ao gerar PIX'))
@@ -149,7 +206,7 @@ export function CheckoutPage() {
                 void (async () => {
                   try {
                     const { data, error } = await supabase.functions.invoke('australia-process-payment', {
-                      body: { phone: fullPhone, full_name: fullName, email, selectedPaymentMethod: 'credit_card', formData },
+                      body: { phone: fullPhone, full_name: fullName, email, selectedPaymentMethod: 'credit_card', formData, checkout_verification_token: checkoutVerificationToken },
                     })
                     if (error) {
                       const m = await serverErrMsg(error, 'Erro ao processar pagamento.')
@@ -273,7 +330,7 @@ export function CheckoutPage() {
                 />
               </div>
               <button type="submit" className="btn-primary-lg">
-                Continuar para o pagamento →
+                Continuar e confirmar WhatsApp →
               </button>
             </form>
             <p className="auth-disclaimer">
@@ -309,9 +366,35 @@ export function CheckoutPage() {
               />
               <span>Confirmo que os dados estão corretos e que consigo receber mensagens neste WhatsApp.</span>
             </label>
-            <button className="btn-primary-lg" disabled={!contactConfirmed} onClick={() => setStep('method')}>
-              Confirmar e escolher pagamento
-            </button>
+            {!otpSent ? (
+              <button className="btn-primary-lg" disabled={!contactConfirmed || otpLoading} onClick={sendCheckoutOtp}>
+                {otpLoading ? <><Loader2 size={16} className="spin" /> Enviando codigo...</> : 'Receber codigo no WhatsApp'}
+              </button>
+            ) : (
+              <div className="auth-form">
+                <div className="field">
+                  <label htmlFor="checkout-otp">Codigo enviado para {fullPhone}</label>
+                  <input
+                    id="checkout-otp"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otp}
+                    onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    autoFocus
+                    required
+                    className="otp-input"
+                  />
+                </div>
+                <button className="btn-primary-lg" disabled={otpLoading || otp.length !== 6} onClick={verifyCheckoutOtp}>
+                  {otpLoading ? <><Loader2 size={16} className="spin" /> Confirmando...</> : 'Confirmar WhatsApp e pagar'}
+                </button>
+                <button type="button" className="btn-text" onClick={sendCheckoutOtp} disabled={otpLoading}>
+                  Reenviar codigo
+                </button>
+              </div>
+            )}
             <button type="button" className="btn-text" onClick={() => setStep('contact')}>
               Corrigir dados
             </button>

@@ -26,9 +26,30 @@ export interface Subscriber {
   phone: string
   full_name: string | null
   active: boolean
+  in_group: boolean
+  group_added_at: string | null
   paid_at: string
   access_expires_at: string | null   // NULL = vitalício (assinantes legados)
   session_expires_at: string
+}
+
+export interface UserRuntimeConfig {
+  support_whatsapp_number: string | null
+  support_default_message: string | null
+  contact_email: string | null
+  contact_text: string | null
+  whatsapp_group_name: string | null
+  whatsapp_group_invite_url: string | null
+}
+
+export interface PublicConfig {
+  support_whatsapp_number: string | null
+  support_default_message: string | null
+  contact_email: string | null
+  contact_text: string
+  about_title: string
+  about_body: string
+  landing_trust_text: string
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -46,6 +67,13 @@ export interface MonitorConfig {
   whatsapp_group_jid: string | null
   whatsapp_group_name: string | null
   whatsapp_group_invite_url: string | null
+  support_whatsapp_number: string | null
+  support_default_message: string | null
+  contact_email: string | null
+  contact_text: string | null
+  about_title: string | null
+  about_body: string | null
+  landing_trust_text: string | null
   last_detected_status: DetectedStatus
   last_detected_raw: string | null
   last_checked_at: string | null

@@ -15,6 +15,7 @@ const S: Record<string, CSSProperties> = {
   card: { background: '#131313', border: '1px solid #242424', borderRadius: 10, padding: 20 },
   label: { fontSize: 12, color: '#9a9a9a', display: 'block', marginBottom: 4 },
   input: { width: '100%', height: 38, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e8e8e8', padding: '0 12px', fontSize: 14 },
+  textarea: { width: '100%', minHeight: 88, background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: 8, color: '#e8e8e8', padding: '10px 12px', fontSize: 14, resize: 'vertical' },
   btn: { display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, padding: '0 14px', borderRadius: 8, border: '1px solid #2a2a2a', background: '#1b1b1b', color: '#e8e8e8', cursor: 'pointer', fontSize: 13 },
   btnPrimary: { background: '#2e7d52', borderColor: '#2e7d52', color: '#fff' },
 }
@@ -34,7 +35,20 @@ export function AdminPage() {
   const config = data?.config
   const stats = data?.stats
 
-  const [form, setForm] = useState({ enabled: false, check_interval_minutes: 1, whatsapp_instance_name: 'australia_whv_saas', country_name: 'Brazil' })
+  const [form, setForm] = useState({
+    enabled: false,
+    check_interval_minutes: 1,
+    whatsapp_instance_name: 'australia_whv_saas',
+    country_name: 'Brazil',
+    support_whatsapp_number: '',
+    support_default_message: 'Ola, preciso de ajuda com meu acesso ao Australia WHV.',
+    contact_email: '',
+    contact_text: '',
+    about_title: '',
+    about_body: '',
+    landing_trust_text: '',
+    whatsapp_group_invite_url: '',
+  })
   const [testNumber, setTestNumber] = useState('')
   const [connectOpen, setConnectOpen] = useState(false)
   // Grupo: só carrega a lista da Evolution quando o admin abre o seletor.
@@ -58,6 +72,14 @@ export function AdminPage() {
         check_interval_minutes: config.check_interval_minutes,
         whatsapp_instance_name: config.whatsapp_instance_name,
         country_name: config.country_name,
+        support_whatsapp_number: config.support_whatsapp_number ?? '',
+        support_default_message: config.support_default_message ?? 'Ola, preciso de ajuda com meu acesso ao Australia WHV.',
+        contact_email: config.contact_email ?? '',
+        contact_text: config.contact_text ?? '',
+        about_title: config.about_title ?? '',
+        about_body: config.about_body ?? '',
+        landing_trust_text: config.landing_trust_text ?? '',
+        whatsapp_group_invite_url: config.whatsapp_group_invite_url ?? '',
       })
     }
   }, [config])
@@ -239,6 +261,61 @@ export function AdminPage() {
               <Users size={14} strokeWidth={1.75} /> Ao detectar <b style={{ color: '#e8e8e8' }}>Open</b>, um único alerta é postado no <b style={{ color: '#e8e8e8' }}>grupo</b> (não em DMs).
             </div>
           </div>
+        </div>
+
+        {/* Conteudo publico / suporte */}
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: 15 }}>Suporte e conteudo publico</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={S.label}>WhatsApp oficial de suporte</label>
+              <input style={S.input} placeholder="5511999999999" value={form.support_whatsapp_number}
+                onChange={(e) => setForm((f) => ({ ...f, support_whatsapp_number: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>E-mail de contato</label>
+              <input style={S.input} placeholder="contato@..." value={form.contact_email}
+                onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={S.label}>Mensagem padrao do suporte WhatsApp</label>
+            <input style={S.input} value={form.support_default_message}
+              onChange={(e) => setForm((f) => ({ ...f, support_default_message: e.target.value }))} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={S.label}>Titulo "Sobre nos"</label>
+              <input style={S.input} value={form.about_title}
+                onChange={(e) => setForm((f) => ({ ...f, about_title: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>Texto de confianca da landing</label>
+              <input style={S.input} value={form.landing_trust_text}
+                onChange={(e) => setForm((f) => ({ ...f, landing_trust_text: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={S.label}>Texto "Sobre nos"</label>
+              <textarea style={S.textarea} value={form.about_body}
+                onChange={(e) => setForm((f) => ({ ...f, about_body: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>Texto de contato</label>
+              <textarea style={S.textarea} value={form.contact_text}
+                onChange={(e) => setForm((f) => ({ ...f, contact_text: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={S.label}>Link manual do grupo WhatsApp</label>
+            <input style={S.input} placeholder="https://chat.whatsapp.com/..." value={form.whatsapp_group_invite_url}
+              onChange={(e) => setForm((f) => ({ ...f, whatsapp_group_invite_url: e.target.value }))} />
+          </div>
+          <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
+            onClick={() => run({ action: 'save_config', payload: form }, 'Config publica salva', 'Salvando...')}>
+            <Save size={15} strokeWidth={1.75} /> Salvar suporte e conteudo
+          </button>
         </div>
 
         {/* Grupo de alertas */}

@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { Subscriber } from '../../types'
+import type { Subscriber, UserRuntimeConfig } from '../../types'
 
 const SESSION_KEY = 'whv_session'
 
 interface AuthState {
   subscriber: Subscriber | null
+  userConfig: UserRuntimeConfig | null
   token: string | null
   loading: boolean
 }
@@ -19,7 +20,7 @@ interface AuthContextValue extends AuthState {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({ subscriber: null, token: null, loading: true })
+  const [state, setState] = useState<AuthState>({ subscriber: null, userConfig: null, token: null, loading: true })
 
   const validate = useCallback(async (token: string) => {
     // Valida via Edge Function (service role) — NUNCA por SELECT anon, senão o
@@ -28,14 +29,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: { session_token: token },
     })
 
-    const subscriber = (data as { subscriber?: Subscriber } | null)?.subscriber ?? null
+    const payload = data as { subscriber?: Subscriber | null; user_config?: UserRuntimeConfig | null } | null
+    const subscriber = payload?.subscriber ?? null
     if (error || !subscriber) {
       localStorage.removeItem(SESSION_KEY)
-      setState({ subscriber: null, token: null, loading: false })
+      setState({ subscriber: null, userConfig: null, token: null, loading: false })
       return
     }
 
-    setState({ subscriber, token, loading: false })
+    setState({ subscriber, userConfig: payload?.user_config ?? null, token, loading: false })
   }, [])
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY)
-    setState({ subscriber: null, token: null, loading: false })
+    setState({ subscriber: null, userConfig: null, token: null, loading: false })
   }
 
   return (

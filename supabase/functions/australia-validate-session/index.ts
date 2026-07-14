@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
 
   try {
     const { session_token } = await req.json() as { session_token?: string }
-    if (!session_token) return json({ subscriber: null }, 200)
+    if (!session_token) return json({ subscriber: null, user_config: null }, 200)
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
 
     const { data } = await supabase
       .from('australia_whv_subscribers')
-      .select('id, phone, active, paid_at, session_expires_at, access_expires_at, full_name')
+      .select('id, phone, active, paid_at, session_expires_at, access_expires_at, full_name, in_group, group_added_at')
       .eq('session_token', session_token)
       .eq('active', true)
       .or('access_expires_at.is.null,access_expires_at.gt.' + new Date().toISOString())
@@ -37,8 +37,16 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     // Só devolve campos seguros; nunca session_token/payment_id.
-    return json({ subscriber: data ?? null })
+    if (!data) return json({ subscriber: null, user_config: null })
+
+    const { data: cfg } = await supabase
+      .from('australia_whv_monitor_config')
+      .select('support_whatsapp_number, support_default_message, contact_email, contact_text, whatsapp_group_name, whatsapp_group_invite_url')
+      .eq('singleton_key', 'main')
+      .maybeSingle()
+
+    return json({ subscriber: data, user_config: cfg ?? null })
   } catch {
-    return json({ subscriber: null }, 200)
+    return json({ subscriber: null, user_config: null }, 200)
   }
 })

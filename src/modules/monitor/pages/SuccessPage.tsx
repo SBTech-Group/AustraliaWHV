@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Loader2, MessageCircle } from 'lucide-react'
+import { CheckCircle2, Loader2, MessageCircle, Users } from 'lucide-react'
 
 export function SuccessPage() {
   const [params] = useSearchParams()
@@ -9,13 +9,11 @@ export function SuccessPage() {
 
   useEffect(() => {
     const paymentStatus = params.get('status')
-    // MP redireciona com ?status=approved | pending | failure
     if (paymentStatus === 'approved') {
       setStatus('ok')
     } else if (paymentStatus === 'pending') {
       setStatus('pending')
     } else {
-      // Sem parâmetro ou failure → aguarda webhook processar
       setStatus('ok')
     }
   }, [params])
@@ -36,20 +34,20 @@ export function SuccessPage() {
             <div className="success-icon">
               <CheckCircle2 size={48} strokeWidth={1.5} style={{ color: '#4FCB8E' }} />
             </div>
-            <h1>Tudo certo! 🎉</h1>
+            <h1>Pagamento confirmado</h1>
             <p className="auth-sub">
-              Pagamento confirmado. Você foi adicionado ao nosso grupo de alertas no WhatsApp — confira seu WhatsApp.
+              Seu acesso foi liberado. Acesse o painel com o mesmo WhatsApp confirmado no checkout.
               <br /><br />
-              É no grupo que avisamos, assim que a Austrália abrir vagas WHV, você será um dos primeiros a saber.
+              Se a entrada automatica no grupo nao acontecer, o painel mostra o convite disponivel e o canal de suporte.
             </p>
             <div className="success-steps">
               <div className="success-step">
                 <MessageCircle size={18} style={{ color: '#4FCB8E' }} />
-                <span>Você foi adicionado ao nosso grupo de alertas no WhatsApp — confira seu WhatsApp</span>
+                <span>Use o mesmo WhatsApp para receber o codigo de login</span>
               </div>
               <div className="success-step">
-                <CheckCircle2 size={18} style={{ color: '#E2BE6A' }} />
-                <span>Acesse o painel para acompanhar o status em tempo real</span>
+                <Users size={18} style={{ color: '#E2BE6A' }} />
+                <span>Confira no painel se voce ja entrou no grupo de alertas</span>
               </div>
             </div>
             <button className="btn-primary-lg" onClick={() => navigate('/login')}>
@@ -58,14 +56,14 @@ export function SuccessPage() {
           </>
         ) : (
           <>
-            <h1>Pagamento em análise</h1>
+            <h1>Pagamento em analise</h1>
             <p className="auth-sub">
-              Seu pagamento está sendo processado. Assim que confirmado, você receberá um WhatsApp.
+              Seu pagamento esta sendo processado. Assim que confirmar, o acesso sera liberado automaticamente.
               <br /><br />
-              Isso pode levar alguns minutos dependendo do método de pagamento.
+              Isso pode levar alguns minutos dependendo do metodo de pagamento.
             </p>
             <button className="btn-outline" onClick={() => navigate('/')}>
-              Voltar ao início
+              Voltar ao inicio
             </button>
           </>
         )}

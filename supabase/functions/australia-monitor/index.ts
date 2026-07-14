@@ -101,6 +101,21 @@ Deno.serve(async (req) => {
     return (data ?? {}) as Record<string, unknown>
   }
 
+  async function cleanupEphemeralData() {
+    try {
+      const { error } = await supabase.rpc('australia_whv_cleanup_ephemeral_data')
+      if (!error) return
+    } catch { /* fallback abaixo */ }
+
+    try {
+      await Promise.all([
+        supabase.from('australia_whv_monitor_logs').delete().lt('created_at', new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString()),
+        supabase.from('australia_whv_monitor_logs').delete().eq('action', 'check').eq('level', 'info').is('detected_status', null).ilike('message', 'Verifica%iniciada%'),
+        supabase.from('australia_whv_otps').delete().lt('expires_at', new Date(Date.now() - 24 * 60 * 60_000).toISOString()),
+      ])
+    } catch { /* limpeza nunca derruba a acao principal */ }
+  }
+
   async function connectionState(instance: string) {
     const res = await evoFetch(`/instance/connectionState/${instance}`)
     const raw = res.data as Record<string, any>
@@ -126,7 +141,6 @@ Deno.serve(async (req) => {
     const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
     const now = new Date().toISOString()
     await patchConfig({ last_checked_at: now })
-    await log('info', 'check', { message: `Verificação iniciada (${trigger})`, details: { url, country } })
 
     let res: Response
     try {
@@ -189,6 +203,7 @@ Deno.serve(async (req) => {
 
   try {
     if (action === 'check_now') {
+      await cleanupEphemeralData()
       const cfg = await getConfig()
       if (isCron && !cfg.enabled) return json({ skipped: true, reason: 'disabled' })
       return json(await runCheck(cfg, isCron ? 'cron' : 'manual'))
@@ -209,7 +224,20 @@ Deno.serve(async (req) => {
     if (action === 'save_config') {
       const p = (body.payload ?? {}) as Record<string, unknown>
       const patch: Record<string, unknown> = {}
-      for (const k of ['enabled', 'country_name', 'check_interval_minutes', 'whatsapp_instance_name'] as const) {
+      for (const k of [
+        'enabled',
+        'country_name',
+        'check_interval_minutes',
+        'whatsapp_instance_name',
+        'support_whatsapp_number',
+        'support_default_message',
+        'contact_email',
+        'contact_text',
+        'about_title',
+        'about_body',
+        'landing_trust_text',
+        'whatsapp_group_invite_url',
+      ] as const) {
         if (k in p) patch[k] = p[k]
       }
       if ('check_interval_minutes' in patch) {
@@ -217,13 +245,24 @@ Deno.serve(async (req) => {
         patch.check_interval_minutes = Number.isFinite(n) ? Math.min(60, Math.max(1, Math.round(n))) : 2
       }
       if ('whatsapp_instance_name' in patch) patch.whatsapp_instance_name = String(patch.whatsapp_instance_name).trim() || 'australia_whv_saas'
+      for (const k of ['support_whatsapp_number', 'contact_email', 'whatsapp_group_invite_url'] as const) {
+        if (k in patch) {
+          const value = String(patch[k] ?? '').trim()
+          patch[k] = value || null
+        }
+      }
+      for (const k of ['support_default_message', 'contact_text', 'about_title', 'about_body', 'landing_trust_text'] as const) {
+        if (k in patch) patch[k] = String(patch[k] ?? '').trim().slice(0, 3000)
+      }
       const cfg = await patchConfig(patch)
       await log('info', 'config_update', { message: 'Config salva (admin).', details: { fields: Object.keys(patch) } })
       return json({ config: cfg })
     }
 
     if (action === 'logs') {
-      const { data } = await supabase.from('australia_whv_monitor_logs').select('*').order('created_at', { ascending: false }).limit(100)
+      await cleanupEphemeralData()
+      const since = new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString()
+      const { data } = await supabase.from('australia_whv_monitor_logs').select('*').gte('created_at', since).order('created_at', { ascending: false }).limit(100)
       return json({ logs: data ?? [] })
     }
 
@@ -347,6 +386,7 @@ Deno.serve(async (req) => {
       if (jid) {
         add = await addParticipants(instance, jid, [phone])
         await supabase.from('australia_whv_subscribers').update({ in_group: add.ok, group_added_at: add.ok ? now : null }).eq('phone', phone)
+        if (!add.ok) await log('warning', 'group_add', { message: `Falha ao adicionar assinante ao grupo: ${phone}.`, details: { evo: add } })
       }
       await log('success', 'add_subscriber', { message: `Assinante adicionado: ${full_name} (${phone}).`, details: { in_group: add?.ok ?? false } })
       return json({ ok: true, in_group: add?.ok ?? false })
@@ -374,6 +414,7 @@ Deno.serve(async (req) => {
       for (const s of list) {
         const add = await addParticipants(instance, jid, [String(s.phone)])
         if (add.ok) { await supabase.from('australia_whv_subscribers').update({ in_group: true, group_added_at: new Date().toISOString() }).eq('id', s.id); added++ }
+        else await log('warning', 'sync_group', { message: `Falha ao adicionar ${String(s.phone)} ao grupo.`, details: { evo: add } })
         await sleep(800)   // throttle anti-ban
       }
       await log('info', 'sync_group', { message: `Sincronização do grupo: ${added}/${list.length} adicionado(s).` })

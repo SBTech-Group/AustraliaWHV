@@ -20,12 +20,13 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
-    const { phone, full_name, email, selectedPaymentMethod, formData } = await req.json() as {
+    const { phone, full_name, email, selectedPaymentMethod, formData, checkout_verification_token } = await req.json() as {
       phone?: string
       full_name?: string
       email?: string
       selectedPaymentMethod?: string
       formData?: Record<string, unknown>
+      checkout_verification_token?: string
     }
 
     if (!phone) return json({ error: 'phone obrigatório' }, 400)
@@ -48,6 +49,25 @@ Deno.serve(async (req) => {
     }
 
     // Preço vem do plano (Hub → fallback env). Nunca confia no amount do front.
+    const verificationToken = String(checkout_verification_token ?? '').trim()
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(verificationToken)) {
+      return json({ error: 'Confirme seu WhatsApp antes de seguir para o pagamento.' }, 401)
+    }
+
+    const { data: verifiedOtp } = await supabase
+      .from('australia_whv_otps')
+      .select('id')
+      .eq('phone', phone)
+      .eq('purpose', 'checkout')
+      .eq('used', true)
+      .eq('verification_token', verificationToken)
+      .gt('verified_at', new Date(Date.now() - 30 * 60_000).toISOString())
+      .maybeSingle()
+
+    if (!verifiedOtp) {
+      return json({ error: 'Confirmacao do WhatsApp expirada. Solicite um novo codigo.' }, 401)
+    }
+
     const { price } = await fetchPlan()
 
     const isPix = selectedPaymentMethod === 'bank_transfer' || selectedPaymentMethod === 'pix'

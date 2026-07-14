@@ -1,22 +1,27 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle2, LifeBuoy, Loader2, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ExternalLink, LifeBuoy, Loader2, Users, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { usePlan, cicloLabel } from '../../../lib/plan'
 import { fmtDateTime } from '../../../lib/cron'
+import { mailtoUrl, whatsappUrl } from '../../../lib/contact'
 
 export function PlanPage() {
   const navigate = useNavigate()
-  const { subscriber, token, logout } = useAuth()
+  const { subscriber, userConfig, token, logout } = useAuth()
   const { data: plan } = usePlan()
   const [canceling, setCanceling] = useState(false)
 
   const expira = subscriber?.access_expires_at
+  const supportHref = whatsappUrl(userConfig?.support_whatsapp_number, userConfig?.support_default_message)
+  const emailHref = mailtoUrl(userConfig?.contact_email, 'Suporte Australia WHV')
+  const groupInvite = userConfig?.whatsapp_group_invite_url?.trim() || ''
+  const groupName = userConfig?.whatsapp_group_name?.trim() || 'grupo de alertas'
 
   async function handleCancel() {
-    if (!confirm('Cancelar sua assinatura? Você perderá o acesso ao painel e sairá do grupo de alertas.')) return
+    if (!confirm('Cancelar sua assinatura? Voce perdera o acesso ao painel e saira do grupo de alertas.')) return
     setCanceling(true)
     try {
       const { data, error } = await supabase.functions.invoke('australia-cancel', { body: { session_token: token } })
@@ -45,34 +50,80 @@ export function PlanPage() {
 
       <main className="monitor-main">
         <div className="status-card">
-          <div className="status-label">Assinatura</div>
+          <div className="status-label">Seu plano</div>
           <div className="sub-grid">
             <div><span className="sub-k">Plano</span><span className="sub-v">{plan.name}</span></div>
             <div><span className="sub-k">Valor</span><span className="sub-v">{plan.priceLabel} <small>{cicloLabel(plan.ciclo)}</small></span></div>
             <div>
-              <span className="sub-k">Situação</span>
-              <span className="sub-v" style={{ color: '#4FCB8E', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CheckCircle2 size={14} /> Ativo
-              </span>
+              <span className="sub-k">Status do acesso</span>
+              <span className="sub-v ok-inline"><CheckCircle2 size={14} /> Ativo</span>
             </div>
             <div>
-              <span className="sub-k">{expira ? 'Renova/expira em' : 'Acesso'}</span>
-              <span className="sub-v">{expira ? fmtDateTime(expira) : 'Vitalício'}</span>
+              <span className="sub-k">{expira ? 'Valido ate' : 'Validade'}</span>
+              <span className="sub-v">{expira ? fmtDateTime(expira) : 'Vitalicio'}</span>
             </div>
-            <div><span className="sub-k">WhatsApp</span><span className="sub-v">{subscriber?.phone ?? '-'}</span></div>
+            <div><span className="sub-k">WhatsApp cadastrado</span><span className="sub-v">{subscriber?.phone ?? '-'}</span></div>
             <div><span className="sub-k">Nome</span><span className="sub-v">{subscriber?.full_name ?? '-'}</span></div>
+          </div>
+          <p className="plan-copy">
+            Se o pagamento foi aprovado, este painel e o grupo de alertas sao os dois pontos principais para acompanhar o servico.
+          </p>
+        </div>
+
+        <div className="status-card">
+          <div className="status-label">Grupo de alertas</div>
+          <div className="plan-state-row">
+            <div>
+              <div className="sub-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Users size={15} /> {subscriber?.in_group ? 'Voce esta marcado como adicionado' : 'Entrada no grupo pendente'}
+              </div>
+              <p className="plan-copy">
+                {subscriber?.in_group
+                  ? `Os alertas sao enviados no ${groupName}.`
+                  : 'Se a adicao automatica falhou, use o convite abaixo ou fale com o suporte.'}
+              </p>
+            </div>
+            {groupInvite && (
+              <a className="btn-outline-sm" href={groupInvite} target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={13} /> Abrir convite
+              </a>
+            )}
+          </div>
+          {!groupInvite && (
+            <p className="plan-copy muted-copy">
+              O link do grupo ainda nao foi configurado. Fale com o suporte para ser adicionado manualmente.
+            </p>
+          )}
+        </div>
+
+        <div className="status-card">
+          <div className="status-label">Suporte</div>
+          <p className="plan-copy">
+            Problema com acesso, pagamento aprovado sem entrada no grupo ou duvida sobre vencimento? Use o canal oficial abaixo.
+          </p>
+          <div className="plan-actions">
+            {supportHref ? (
+              <a className="btn-outline-sm" href={supportHref} target="_blank" rel="noopener noreferrer">
+                <LifeBuoy size={13} /> Falar no WhatsApp
+              </a>
+            ) : emailHref ? (
+              <a className="btn-outline-sm" href={emailHref}>
+                <LifeBuoy size={13} /> Falar com suporte
+              </a>
+            ) : (
+              <button className="btn-outline-sm" disabled>
+                <LifeBuoy size={13} /> Suporte nao configurado
+              </button>
+            )}
           </div>
         </div>
 
         <div className="status-card">
-          <div className="status-label">Suporte e cancelamento</div>
+          <div className="status-label">Cancelamento</div>
           <p className="plan-copy">
-            O cancelamento fica separado do monitor para evitar cliques acidentais. Ao cancelar, seu acesso é encerrado e você sai do grupo de alertas.
+            Ao cancelar, seu acesso e encerrado e voce sai do grupo de alertas. Esta acao nao altera pagamentos ja processados no Mercado Pago.
           </p>
           <div className="plan-actions">
-            <a className="btn-outline-sm" href="mailto:suporte@sbtech-group.com">
-              <LifeBuoy size={13} /> Falar com suporte
-            </a>
             <button className="btn-outline-sm cancel-link" onClick={handleCancel} disabled={canceling}>
               {canceling ? <Loader2 size={13} className="spin" /> : <XCircle size={13} />}
               {canceling ? 'Cancelando...' : 'Cancelar assinatura'}
