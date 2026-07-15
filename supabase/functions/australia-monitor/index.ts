@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
     if (phones.length > 0) {
       const { data } = await supabase
         .from('australia_whv_subscribers')
-        .select('phone, in_group, group_added_at')
+        .select('phone, in_group, group_added_at, group_access_status, group_access_method, group_access_error, group_joined_at, group_invite_sent_at, group_invite_attempts')
         .limit(2000)
       for (const row of data ?? []) localByPhone.set(phoneKey(String(row.phone)), row as Record<string, unknown>)
     }
@@ -171,13 +171,25 @@ Deno.serve(async (req) => {
         active: isHubActive(s.status, s.fim),
         in_group: !!local?.in_group,
         group_added_at: (local?.group_added_at as string | null | undefined) ?? null,
+        group_access_status: (local?.group_access_status as string | null | undefined) ?? (local?.in_group ? 'active' : 'invite_pending'),
+        group_access_method: (local?.group_access_method as string | null | undefined) ?? null,
+        group_access_error: (local?.group_access_error as string | null | undefined) ?? null,
+        group_joined_at: (local?.group_joined_at as string | null | undefined) ?? null,
+        group_invite_sent_at: (local?.group_invite_sent_at as string | null | undefined) ?? null,
+        group_invite_attempts: Number(local?.group_invite_attempts ?? 0),
         access_expires_at: accessEnd,
         overdue,
       }
     })
   }
 
-  async function saveGroupState(input: Record<string, unknown>, inGroup: boolean) {
+  async function saveGroupState(
+    input: Record<string, unknown>,
+    inGroup: boolean,
+    groupStatus = inGroup ? 'active' : 'invite_pending',
+    method = 'admin',
+    error: string | null = null,
+  ) {
     const now = new Date().toISOString()
     const phone = String(input.phone ?? '').trim()
     await supabase.from('australia_whv_subscribers').upsert({
@@ -189,7 +201,21 @@ Deno.serve(async (req) => {
       payment_status: 'hub',
       in_group: inGroup,
       group_added_at: inGroup ? now : null,
+      group_joined_at: inGroup ? now : null,
+      group_access_status: groupStatus,
+      group_access_method: method,
+      group_access_error: error,
+      group_last_checked_at: now,
     }, { onConflict: 'phone' })
+    await supabase.from('australia_whv_group_access_attempts').insert({
+      phone,
+      group_jid: cfg.whatsapp_group_jid ?? null,
+      method,
+      status: inGroup ? 'success' : groupStatus,
+      error_message: error,
+      details: { source: 'admin_monitor' },
+      joined_at: inGroup ? now : null,
+    }).then(() => {}, () => {})
   }
 
   async function cleanupEphemeralData() {
@@ -333,6 +359,7 @@ Deno.serve(async (req) => {
         'about_body',
         'landing_trust_text',
         'instagram_url',
+        'show_landing_subscriber_count',
       ] as const) {
         if (k in p) patch[k] = p[k]
       }
@@ -341,6 +368,7 @@ Deno.serve(async (req) => {
         patch.check_interval_minutes = Number.isFinite(n) ? Math.min(60, Math.max(1, Math.round(n))) : 2
       }
       if ('whatsapp_instance_name' in patch) patch.whatsapp_instance_name = String(patch.whatsapp_instance_name).trim() || 'australia_whv_saas'
+      if ('show_landing_subscriber_count' in patch) patch.show_landing_subscriber_count = Boolean(patch.show_landing_subscriber_count)
       for (const k of ['support_whatsapp_number', 'instagram_url'] as const) {
         if (k in patch) {
           const value = String(patch[k] ?? '').trim()
@@ -464,7 +492,7 @@ Deno.serve(async (req) => {
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
       if (!jid) return json({ error: 'Nenhum grupo definido' }, 400)
       const add = await addParticipants(instance, jid, [phoneKey(phone)])
-      await saveGroupState({ ...body, phone, full_name }, add.ok)
+      await saveGroupState({ ...body, phone, full_name }, add.ok, add.ok ? 'active' : 'invite_pending', 'admin', add.ok ? null : JSON.stringify(add.data).slice(0, 500))
       if (!add.ok) {
         await log('warning', 'group_add', { message: `Falha ao adicionar assinante ao grupo: ${phone}.`, details: { evo: add } })
         return json({ error: 'Falha ao adicionar no grupo', details: add.data }, 502)
@@ -479,7 +507,7 @@ Deno.serve(async (req) => {
       if (!phone) return json({ error: 'Telefone obrigatorio' }, 400)
       const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
       if (jid) await removeParticipants(instance, jid, [phoneKey(phone)])
-      await saveGroupState({ ...body, phone }, false)
+      await saveGroupState({ ...body, phone }, false, 'removed', 'admin')
       await log('warning', 'group_remove', { message: `Assinante removido do grupo: ${phone}.` })
       return json({ ok: true })
     }
@@ -492,7 +520,7 @@ Deno.serve(async (req) => {
       let added = 0
       for (const s of list) {
         const add = await addParticipants(instance, jid, [phoneKey(String(s.phone))])
-        await saveGroupState(s, add.ok)
+        await saveGroupState(s, add.ok, add.ok ? 'active' : 'invite_pending', 'sync', add.ok ? null : JSON.stringify(add.data).slice(0, 500))
         if (add.ok) added++
         else await log('warning', 'sync_group', { message: `Falha ao adicionar ${String(s.phone)} ao grupo.`, details: { evo: add } })
         await sleep(800)   // throttle anti-ban

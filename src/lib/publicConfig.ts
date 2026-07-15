@@ -9,6 +9,7 @@ export const DEFAULT_PUBLIC_CONFIG: PublicConfig = {
   about_body: 'O Monitor WHV Austrália acompanha o status oficial do Work and Holiday Visa para brasileiros e envia avisos pelo WhatsApp quando houver mudança relevante.',
   landing_trust_text: 'Você confirma o WhatsApp antes de pagar. Com o pagamento aprovado, o acesso ao painel e ao grupo de alertas fica disponível no mesmo número.',
   instagram_url: null,
+  show_landing_subscriber_count: true,
 }
 
 export function usePublicConfig() {

@@ -71,6 +71,38 @@ export async function removeParticipants(instance: string, groupJid: string, num
   return await updateParticipants(instance, groupJid, 'remove', numbers)
 }
 
+export async function findGroupParticipants(instance: string, groupJid: string) {
+  return await evoFetch<unknown>(`/group/participants/${instance}?groupJid=${encodeURIComponent(groupJid)}`)
+}
+
+export function isParticipant(data: unknown, phone: string) {
+  const digits = phone.replace(/\D/g, '')
+  const candidates: unknown[] = []
+  const push = (value: unknown) => {
+    if (Array.isArray(value)) candidates.push(...value)
+  }
+  push(data)
+  if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>
+    push(obj.participants)
+    push(obj.data)
+    if (obj.data && typeof obj.data === 'object') push((obj.data as Record<string, unknown>).participants)
+  }
+  return candidates.some((p) => {
+    const item = p as Record<string, unknown>
+    const raw = String(item.id ?? item.jid ?? item.phone ?? item.number ?? item.lid ?? '')
+    return raw.replace(/\D/g, '').includes(digits)
+  })
+}
+
+export async function sendGroupInvite(instance: string, groupJid: string, numbers: string[], description: string) {
+  const participants = numbers.map((n) => (n.includes('@') ? n : numberToJid(n)))
+  return await evoFetch(`/group/sendInvite/${instance}`, {
+    method: 'POST',
+    body: JSON.stringify({ groupJid, description, numbers: participants }),
+  })
+}
+
 // Link de convite do grupo (fallback quando o add automático falha por privacidade).
 export async function groupInviteUrl(instance: string, groupJid: string): Promise<string | null> {
   const res = await evoFetch<Record<string, unknown>>(`/group/inviteCode/${instance}?groupJid=${encodeURIComponent(groupJid)}`)

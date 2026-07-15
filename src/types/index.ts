@@ -11,6 +11,7 @@ export interface MonitorStatus {
   official_url: string
   check_interval_minutes: number
   group_member_count?: number | null
+  active_subscriber_count?: number | null
 }
 
 export interface MonitorLog {
@@ -29,6 +30,12 @@ export interface Subscriber {
   active: boolean
   in_group: boolean
   group_added_at: string | null
+  group_access_status: 'not_requested' | 'auto_added' | 'invite_pending' | 'invite_sent' | 'active' | 'removed' | 'error'
+  group_access_method: string | null
+  group_access_error: string | null
+  group_joined_at: string | null
+  group_invite_sent_at: string | null
+  group_invite_attempts: number
   paid_at: string
   access_expires_at: string | null   // NULL = vitalício (assinantes legados)
   session_expires_at: string
@@ -40,7 +47,6 @@ export interface UserRuntimeConfig {
   contact_text: string | null
   instagram_url: string | null
   whatsapp_group_name: string | null
-  whatsapp_group_invite_url: string | null
 }
 
 export interface PublicConfig {
@@ -50,6 +56,7 @@ export interface PublicConfig {
   about_body: string
   landing_trust_text: string
   instagram_url: string | null
+  show_landing_subscriber_count?: boolean | null
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -75,6 +82,7 @@ export interface MonitorConfig {
   about_body: string | null
   landing_trust_text: string | null
   instagram_url: string | null
+  show_landing_subscriber_count: boolean
   last_detected_status: DetectedStatus
   last_detected_raw: string | null
   last_checked_at: string | null
@@ -109,6 +117,12 @@ export interface AdminSubscriber {
   active: boolean
   in_group: boolean
   group_added_at: string | null
+  group_access_status: string | null
+  group_access_method: string | null
+  group_access_error: string | null
+  group_joined_at: string | null
+  group_invite_sent_at: string | null
+  group_invite_attempts: number
   access_expires_at: string | null
   overdue: boolean            // access_expires_at < now
 }

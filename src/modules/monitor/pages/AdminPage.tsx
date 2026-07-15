@@ -26,6 +26,15 @@ const DET: Record<DetectedStatus, { label: string; c: string }> = {
 }
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
 
+function groupStateLabel(s: { in_group: boolean; group_access_status?: string | null }) {
+  if (s.in_group || s.group_access_status === 'active') return { label: 'No grupo', color: '#4FCB8E' }
+  if (s.group_access_status === 'invite_sent') return { label: 'Convite enviado', color: '#E2BE6A' }
+  if (s.group_access_status === 'invite_pending') return { label: 'Convite pendente', color: '#E2BE6A' }
+  if (s.group_access_status === 'removed') return { label: 'Removido', color: '#F26D70' }
+  if (s.group_access_status === 'error') return { label: 'Erro', color: '#F26D70' }
+  return { label: 'Fora do grupo', color: '#888' }
+}
+
 type AdminTab = 'operacao' | 'contato' | 'grupo' | 'assinantes' | 'logs'
 const ADMIN_TABS: Array<{ id: AdminTab; label: string }> = [
   { id: 'operacao', label: 'Operação' },
@@ -56,6 +65,7 @@ export function AdminPage() {
     about_body: '',
     landing_trust_text: '',
     instagram_url: '',
+    show_landing_subscriber_count: true,
   })
   const [testNumber, setTestNumber] = useState('')
   const [connectOpen, setConnectOpen] = useState(false)
@@ -83,6 +93,7 @@ export function AdminPage() {
         about_body: config.about_body ?? '',
         landing_trust_text: config.landing_trust_text ?? '',
         instagram_url: config.instagram_url ?? '',
+        show_landing_subscriber_count: config.show_landing_subscriber_count ?? true,
       })
     }
   }, [config])
@@ -323,12 +334,21 @@ export function AdminPage() {
           <div style={{ color: '#888', fontSize: 12, marginBottom: 14 }}>
             Esta aba altera apenas os canais públicos exibidos na landing page.
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#b8b8b8', fontSize: 13, marginBottom: 14 }}>
+            <input
+              type="checkbox"
+              checked={form.show_landing_subscriber_count}
+              onChange={(e) => setForm((f) => ({ ...f, show_landing_subscriber_count: e.target.checked }))}
+            />
+            Exibir quantidade de assinantes ativos na landing
+          </label>
           <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
             onClick={() => run({
               action: 'save_config',
               payload: {
                 support_whatsapp_number: form.support_whatsapp_number,
                 instagram_url: form.instagram_url,
+                show_landing_subscriber_count: form.show_landing_subscriber_count,
               },
             }, 'Contato salvo', 'Salvando...')}>
             <Save size={15} strokeWidth={1.75} /> Salvar contato
@@ -401,8 +421,13 @@ export function AdminPage() {
                       <td style={{ padding: '6px 8px', color: s.overdue ? '#F26D70' : '#9a9a9a' }}>
                         {s.overdue ? 'Vencido' : s.access_expires_at ? `ok ate ${fmt(s.access_expires_at)}` : 'sem vencimento'}
                       </td>
-                      <td style={{ padding: '6px 8px', color: s.in_group ? '#4FCB8E' : '#E2BE6A' }}>
-                        {s.in_group ? 'No grupo' : 'Fora do grupo'}
+                      <td style={{ padding: '6px 8px', color: groupStateLabel(s).color }}>
+                        {groupStateLabel(s).label}
+                        {s.group_access_error && (
+                          <div style={{ color: '#888', fontSize: 11, maxWidth: 220, overflowWrap: 'anywhere' }}>
+                            {s.group_access_error}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '6px 8px' }}>
                         {s.in_group ? (

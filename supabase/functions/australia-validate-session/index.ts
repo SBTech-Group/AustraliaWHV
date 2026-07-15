@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
 
     const { data } = await supabase
       .from('australia_whv_subscribers')
-      .select('id, phone, active, paid_at, session_expires_at, access_expires_at, full_name, in_group, group_added_at')
+      .select('id, phone, active, paid_at, session_expires_at, access_expires_at, full_name, in_group, group_added_at, group_access_status, group_access_method, group_access_error, group_joined_at, group_invite_sent_at, group_invite_attempts')
       .eq('session_token', session_token)
       .eq('active', true)
       .or('access_expires_at.is.null,access_expires_at.gt.' + new Date().toISOString())
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
     const { data: cfg } = await supabase
       .from('australia_whv_monitor_config')
-      .select('support_whatsapp_number, support_default_message, contact_text, instagram_url, whatsapp_group_name, whatsapp_group_invite_url')
+      .select('support_whatsapp_number, support_default_message, contact_text, instagram_url, whatsapp_group_name')
       .eq('singleton_key', 'main')
       .maybeSingle()
 

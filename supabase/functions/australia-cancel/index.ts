@@ -45,7 +45,15 @@ Deno.serve(async (req) => {
     // Desativa + encerra sessão (logout no servidor).
     await supabase
       .from('australia_whv_subscribers')
-      .update({ active: false, in_group: false, session_token: null, session_expires_at: null })
+      .update({
+        active: false,
+        in_group: false,
+        session_token: null,
+        session_expires_at: null,
+        group_access_status: 'removed',
+        group_access_method: 'cancel',
+        group_access_error: null,
+      })
       .eq('id', sub.id)
 
     await supabase.from('australia_whv_monitor_logs').insert({

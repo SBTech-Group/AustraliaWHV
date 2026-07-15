@@ -14,6 +14,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (token: string) => Promise<void>
+  refresh: () => Promise<void>
   logout: () => void
 }
 
@@ -54,13 +55,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await validate(token)
   }
 
+  const refresh = async () => {
+    const token = localStorage.getItem(SESSION_KEY)
+    if (token) await validate(token)
+  }
+
   const logout = () => {
     localStorage.removeItem(SESSION_KEY)
     setState({ subscriber: null, userConfig: null, token: null, loading: false })
   }
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider value={{ ...state, login, refresh, logout }}>
       {children}
     </AuthContext.Provider>
   )

@@ -189,15 +189,15 @@ function instagramHref(value?: string | null) {
 }
 
 function useLandingPublicStatus() {
-  return useQuery<{ group_member_count: number | null }>({
+  return useQuery<{ group_member_count: number | null; active_subscriber_count: number | null }>({
     queryKey: ['landing_public_status'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('australia_whv_public_status')
-        .select('group_member_count')
+        .select('group_member_count, active_subscriber_count')
         .maybeSingle()
       if (error) throw error
-      return data as { group_member_count: number | null }
+      return data as { group_member_count: number | null; active_subscriber_count: number | null }
     },
     refetchInterval: 20_000,
   })
@@ -215,7 +215,10 @@ export function LandingPage() {
   const lastCheck  = useLastCheck()
   const supportHref = whatsappUrl(publicConfig?.support_whatsapp_number, publicConfig?.support_default_message)
   const instagramUrl = instagramHref(publicConfig?.instagram_url)
+  const showCount = publicConfig?.show_landing_subscriber_count !== false
+  const activeCount = Number(landingStatus?.active_subscriber_count ?? 0)
   const groupCount = Number(landingStatus?.group_member_count ?? 0)
+  const badgeCount = activeCount || groupCount
   useScrollReveal()
 
   return (
@@ -249,7 +252,7 @@ export function LandingPage() {
       <section className="lp-hero">
         <div className="lp-hero-badge">
           <span className="pulse-dot" />
-          {groupCount > 0 ? `${groupCount} pessoas no grupo de alertas` : 'Grupo de alertas ativo agora'}
+          {showCount && badgeCount > 0 ? `${badgeCount} pessoas monitorando a cota` : 'Grupo de alertas ativo agora'}
         </div>
         <h1 className="lp-hero-title">
           Receba alerta quando o visto<br />

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, CheckCircle2, CreditCard, ExternalLink, LogOut, MessageCircle, RefreshCw, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../core/auth/AuthContext'
 import { countdown, cronStatus, fmtDateTime, relTime } from '../../../lib/cron'
 import { whatsappUrl } from '../../../lib/contact'
+import { requestGroupAccess } from '../../../lib/groupAccess'
 import type { DetectedStatus, MonitorStatus } from '../../../types'
 
 const STATUS_META: Record<DetectedStatus, { label: string; color: string; bg: string }> = {
@@ -50,10 +52,12 @@ function useMonitorStatus() {
 }
 
 export function MonitorPage() {
-  const { subscriber, userConfig, logout } = useAuth()
+  const { subscriber, userConfig, token, refresh, logout } = useAuth()
   const navigate = useNavigate()
   const { data: status, isLoading } = useMonitorStatus()
   const [now, setNow] = useState(() => Date.now())
+  const [groupBusy, setGroupBusy] = useState(false)
+  const [inviteUrl, setInviteUrl] = useState('')
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -68,13 +72,33 @@ export function MonitorPage() {
   const nome = subscriber?.full_name?.trim() || subscriber?.phone || 'Assinante'
   const expira = subscriber?.access_expires_at
   const inGroup = Boolean(subscriber?.in_group)
-  const groupInvite = userConfig?.whatsapp_group_invite_url?.trim() || ''
+  const groupAccessStatus = subscriber?.group_access_status ?? (inGroup ? 'active' : 'invite_pending')
   const supportHref = whatsappUrl(userConfig?.support_whatsapp_number, userConfig?.support_default_message)
   const groupCount = Number(status?.group_member_count ?? 0)
+  const groupCopy = inGroup
+    ? 'Voce ja esta no grupo de alertas.'
+    : groupAccessStatus === 'invite_sent'
+      ? 'Convite enviado. Se ainda nao entrou, abra o convite novamente.'
+      : 'Nao conseguimos confirmar sua entrada automaticamente. Use o botao para receber o convite.'
 
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  const handleGroupAccess = async () => {
+    if (!token) return
+    setGroupBusy(true)
+    try {
+      const res = await requestGroupAccess(token)
+      if (res.invite_url) setInviteUrl(res.invite_url)
+      toast.success(res.message ?? 'Convite preparado.')
+      await refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Nao foi possivel preparar o convite.')
+    } finally {
+      setGroupBusy(false)
+    }
   }
 
   return (
@@ -148,12 +172,20 @@ export function MonitorPage() {
                   {inGroup ? 'Você está no grupo' : 'Entrada pendente'}
                 </div>
                 <p className="monitor-hero-copy">
-                  {groupCount > 0 ? `${groupCount} assinante(s) participando do grupo.` : 'O grupo é o canal principal dos alertas.'}
+                  {groupCopy} {groupCount > 0 ? `${groupCount} assinante(s) com alertas ativos.` : 'O grupo e o canal principal dos alertas.'}
                 </p>
-                {!inGroup && groupInvite && (
-                  <a className="btn-outline-sm" href={groupInvite} target="_blank" rel="noopener noreferrer">
-                    <Users size={13} /> Entrar no grupo
-                  </a>
+                {!inGroup && (
+                  <div className="access-actions">
+                    <button className="btn-outline-sm" onClick={handleGroupAccess} disabled={groupBusy}>
+                      {groupBusy ? <RefreshCw size={13} className="spin" /> : <Users size={13} />}
+                      {groupAccessStatus === 'invite_sent' ? 'Receber novo convite' : 'Entrar no grupo de alertas'}
+                    </button>
+                    {inviteUrl && (
+                      <a className="btn-outline-sm" href={inviteUrl} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink size={13} /> Abrir convite
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
             </section>

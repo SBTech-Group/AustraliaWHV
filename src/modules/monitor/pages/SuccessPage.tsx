@@ -38,7 +38,7 @@ export function SuccessPage() {
             <p className="auth-sub">
               Seu acesso foi liberado. Acesse o painel com o mesmo WhatsApp confirmado no checkout.
               <br /><br />
-              Se a entrada automatica no grupo nao acontecer, o painel mostra o convite disponivel e o canal de suporte.
+              Se a entrada automatica no grupo nao acontecer, use o botao "Entrar no grupo de alertas" dentro do painel.
             </p>
             <div className="success-steps">
               <div className="success-step">
@@ -47,7 +47,7 @@ export function SuccessPage() {
               </div>
               <div className="success-step">
                 <Users size={18} style={{ color: '#E2BE6A' }} />
-                <span>Confira no painel se voce ja entrou no grupo de alertas</span>
+                <span>Confira no painel o status do grupo e solicite convite se precisar</span>
               </div>
             </div>
             <button className="btn-primary-lg" onClick={() => navigate('/login')}>

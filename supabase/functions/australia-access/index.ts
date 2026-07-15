@@ -69,7 +69,13 @@ Deno.serve(async (req) => {
       if (groupJid && instance) await removeParticipants(instance, groupJid, [phone])   // best-effort
       await supabase
         .from('australia_whv_subscribers')
-        .update({ active: false, in_group: false })
+        .update({
+          active: false,
+          in_group: false,
+          group_access_status: 'removed',
+          group_access_method: 'admin',
+          group_access_error: null,
+        })
         .eq('phone', phone)
     } else if (op === 'extend') {
       const upd: Record<string, unknown> = { active: true, access_expires_at: access_expires_at ?? null }
@@ -77,6 +83,11 @@ Deno.serve(async (req) => {
         const add = await addParticipants(instance, groupJid, [phone])
         upd.in_group = add.ok
         upd.group_added_at = add.ok ? nowISO : null
+        upd.group_joined_at = add.ok ? nowISO : null
+        upd.group_access_status = add.ok ? 'active' : 'invite_pending'
+        upd.group_access_method = 'auto_add'
+        upd.group_access_error = add.ok ? null : JSON.stringify(add.data).slice(0, 500)
+        upd.group_last_checked_at = nowISO
       }
       await supabase
         .from('australia_whv_subscribers')

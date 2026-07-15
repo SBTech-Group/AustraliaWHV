@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle2, ExternalLink, LifeBuoy, Loader2, Users, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ExternalLink, LifeBuoy, Loader2, RefreshCw, Users, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { supabase } from '../../../lib/supabase'
@@ -7,17 +7,36 @@ import { useAuth } from '../../../core/auth/AuthContext'
 import { usePlan, cicloLabel } from '../../../lib/plan'
 import { fmtDateTime } from '../../../lib/cron'
 import { whatsappUrl } from '../../../lib/contact'
+import { requestGroupAccess } from '../../../lib/groupAccess'
 
 export function PlanPage() {
   const navigate = useNavigate()
-  const { subscriber, userConfig, token, logout } = useAuth()
+  const { subscriber, userConfig, token, refresh, logout } = useAuth()
   const { data: plan } = usePlan()
   const [canceling, setCanceling] = useState(false)
+  const [groupBusy, setGroupBusy] = useState(false)
+  const [inviteUrl, setInviteUrl] = useState('')
 
   const expira = subscriber?.access_expires_at
   const supportHref = whatsappUrl(userConfig?.support_whatsapp_number, userConfig?.support_default_message)
-  const groupInvite = userConfig?.whatsapp_group_invite_url?.trim() || ''
   const groupName = userConfig?.whatsapp_group_name?.trim() || 'grupo de alertas'
+  const inGroup = Boolean(subscriber?.in_group)
+  const groupStatus = subscriber?.group_access_status ?? (inGroup ? 'active' : 'invite_pending')
+
+  async function handleGroupAccess() {
+    if (!token) return
+    setGroupBusy(true)
+    try {
+      const res = await requestGroupAccess(token)
+      if (res.invite_url) setInviteUrl(res.invite_url)
+      toast.success(res.message ?? 'Convite preparado.')
+      await refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nao foi possivel preparar o convite.')
+    } finally {
+      setGroupBusy(false)
+    }
+  }
 
   async function handleCancel() {
     if (!confirm('Cancelar sua assinatura? Voce perdera o acesso ao painel e saira do grupo de alertas.')) return
@@ -74,23 +93,31 @@ export function PlanPage() {
           <div className="plan-state-row">
             <div>
               <div className="sub-v" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Users size={15} /> {subscriber?.in_group ? 'Voce esta marcado como adicionado' : 'Entrada no grupo pendente'}
+                <Users size={15} /> {inGroup ? 'Voce esta no grupo de alertas' : 'Entrada no grupo pendente'}
               </div>
               <p className="plan-copy">
-                {subscriber?.in_group
+                {inGroup
                   ? `Os alertas sao enviados no ${groupName}.`
-                  : 'Se a adicao automatica falhou, use o convite abaixo ou fale com o suporte.'}
+                  : groupStatus === 'invite_sent'
+                    ? 'Ja enviamos um convite para o seu WhatsApp. Voce pode solicitar novamente depois de alguns minutos.'
+                    : 'Se a adicao automatica nao funcionar, solicite um convite seguro pelo painel.'}
               </p>
             </div>
-            {groupInvite && (
-              <a className="btn-outline-sm" href={groupInvite} target="_blank" rel="noopener noreferrer">
+            {!inGroup && (
+              <button className="btn-outline-sm" onClick={handleGroupAccess} disabled={groupBusy}>
+                {groupBusy ? <RefreshCw size={13} className="spin" /> : <Users size={13} />}
+                {groupStatus === 'invite_sent' ? 'Receber novo convite' : 'Entrar no grupo'}
+              </button>
+            )}
+            {inviteUrl && (
+              <a className="btn-outline-sm" href={inviteUrl} target="_blank" rel="noopener noreferrer">
                 <ExternalLink size={13} /> Abrir convite
               </a>
             )}
           </div>
-          {!groupInvite && (
+          {!inGroup && !inviteUrl && (
             <p className="plan-copy muted-copy">
-              O link do grupo ainda nao foi configurado. Fale com o suporte para ser adicionado manualmente.
+              O convite nao fica publico na landing. Ele e liberado somente para assinantes ativos.
             </p>
           )}
         </div>

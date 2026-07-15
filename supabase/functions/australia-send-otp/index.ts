@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { sendText } from '../_shared/evolution.ts'
+import { otpMessage } from '../_shared/onboarding.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -114,10 +115,7 @@ Deno.serve(async (req) => {
     }
 
     const numberClean = phone.replace('+', '').replace(/\D/g, '')
-    const title = purpose === 'checkout'
-      ? 'Codigo de confirmacao - Australia WHV'
-      : 'Codigo de acesso - Monitor WHV'
-    const text = `*${title}*\n\n*${code}*\n\nValido por 10 minutos. Nao compartilhe com ninguem.`
+    const text = otpMessage(code, purpose)
 
     const sent = await sendText(String(config.whatsapp_instance_name), numberClean, text)
 

@@ -5,7 +5,8 @@
 // e-mail de boas-vindas (Resend) e registro no Hub SB Tech. Best-effort nos envios.
 
 import { addCiclo, fetchPlan } from './plan.ts'
-import { addParticipants, groupInviteUrl, sendText } from './evolution.ts'
+import { addParticipants, sendText } from './evolution.ts'
+import { openNowMessage, welcomeMessage } from './onboarding.ts'
 
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -17,7 +18,7 @@ interface ActivateOpts {
   email?: string
 }
 
-async function sendWelcomeEmail(to: string, nome: string, appUrl: string, phoneDigits: string) {
+async function sendWelcomeEmail(to: string, nome: string, appUrl: string, phoneDigits: string, addedToGroup: boolean) {
   const key = Deno.env.get('RESEND_API_KEY')
   if (!key || !to) return
   const from = Deno.env.get('EMAIL_FROM') ?? 'Monitor WHV <noreply@sbtech-group.com>'
@@ -35,7 +36,9 @@ async function sendWelcomeEmail(to: string, nome: string, appUrl: string, phoneD
       <p style="margin:24px 0">
         <a href="${appUrl}/login" style="background:#2e7d52;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold">Acessar o painel →</a>
       </p>
-      <p>👥 Você também foi adicionado ao nosso <strong>grupo de alertas no WhatsApp</strong> — é lá que avisamos assim que a Austrália abrir vagas WHV para o Brasil.</p>
+      <p>${addedToGroup
+        ? '👥 Você também foi adicionado ao nosso <strong>grupo de alertas no WhatsApp</strong>.'
+        : '👥 Se a entrada automática no grupo não funcionar, acesse o painel e use a opção <strong>Entrar no grupo de alertas</strong>.'}</p>
       <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
       <p style="font-size:12px;color:#888">Monitor WHV Austrália · Não somos afiliados ao governo australiano.</p>
     </div>`
@@ -119,7 +122,7 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
 
   const { data: cfg } = await supabase
     .from('australia_whv_monitor_config')
-    .select('whatsapp_instance_name, last_detected_status, official_url, whatsapp_group_jid, whatsapp_group_name, whatsapp_group_invite_url')
+    .select('whatsapp_instance_name, last_detected_status, official_url, whatsapp_group_jid, whatsapp_group_name')
     .eq('singleton_key', 'main')
     .maybeSingle()
 
@@ -133,8 +136,26 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
     const add = await addParticipants(instance, String(cfg.whatsapp_group_jid), [numberClean])
     added = add.ok
     await supabase.from('australia_whv_subscribers')
-      .update({ in_group: add.ok, group_added_at: add.ok ? nowISO : null })
+      .update({
+        in_group: add.ok,
+        group_added_at: add.ok ? nowISO : null,
+        group_joined_at: add.ok ? nowISO : null,
+        group_access_status: add.ok ? 'active' : 'invite_pending',
+        group_access_method: 'auto_add',
+        group_access_error: add.ok ? null : JSON.stringify(add.data).slice(0, 500),
+        group_last_checked_at: nowISO,
+      })
       .eq('phone', phone)
+    await supabase.from('australia_whv_group_access_attempts').insert({
+      phone,
+      group_jid: cfg.whatsapp_group_jid,
+      method: 'auto_add',
+      status: add.ok ? 'success' : 'failed',
+      error_message: add.ok ? null : 'Falha ao adicionar automaticamente pelo WhatsApp.',
+      http_status: add.status || null,
+      details: { evo: add.data },
+      joined_at: add.ok ? nowISO : null,
+    }).then(() => {}, () => {})
     if (!add.ok) {
       await supabase.from('australia_whv_monitor_logs').insert({
         level: 'warning',
@@ -145,6 +166,15 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
       }).then(() => {}, () => {})
     }
   } else {
+    await supabase.from('australia_whv_subscribers')
+      .update({
+        in_group: false,
+        group_access_status: 'invite_pending',
+        group_access_method: 'auto_add',
+        group_access_error: 'Grupo de alertas nao configurado.',
+        group_last_checked_at: nowISO,
+      })
+      .eq('phone', phone)
     await supabase.from('australia_whv_monitor_logs').insert({
       level: 'warning',
       action: 'group_add',
@@ -155,33 +185,15 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
   // ── DM de boas-vindas (WhatsApp) ────────────────────────────────────────────
   const evoOk = !!(Deno.env.get('EVOLUTION_API_URL') && Deno.env.get('EVOLUTION_API_KEY') && instance)
   if (evoOk) {
-    const groupName = String(cfg?.whatsapp_group_name ?? '')
-    let invite = cfg?.whatsapp_group_invite_url ? String(cfg.whatsapp_group_invite_url) : ''
-    if (!added && !invite && cfg?.whatsapp_group_jid) {
-      invite = (await groupInviteUrl(instance!, String(cfg.whatsapp_group_jid))) ?? ''
-    }
-    const groupLine = added
-      ? `👥 Você foi adicionado ao nosso *grupo de alertas* (${groupName}). É lá que avisamos quando a Austrália abrir.`
-      : invite
-        ? `👥 Entre no nosso *grupo de alertas*: ${invite}\n(não consegui te adicionar automaticamente — toque no link).`
-        : `👥 Em breve você será adicionado ao nosso *grupo de alertas*.`
-    await sendText(instance!, numberClean,
-      `✅ *Pagamento confirmado — acesso liberado!*\n\n` +
-      `Você agora é assinante do *Monitor WHV Austrália*.\n\n` +
-      `${groupLine}\n\n` +
-      `📊 *Painel:* ${appUrl}/login\n` +
-      `🔑 *Como entrar:* use este mesmo número (${numberClean}) — enviamos um código por aqui.`,
-    )
+    await sendText(instance!, numberClean, welcomeMessage({ addedToGroup: added, groupName: String(cfg?.whatsapp_group_name ?? '') }))
     if (cfg?.last_detected_status === 'Open') {
-      await sendText(instance!, numberClean,
-        `🚨 *AUSTRÁLIA WHV JÁ ESTÁ ABERTO PARA O BRASIL!*\n\nEntre AGORA no ImmiAccount.\n\nOficial: ${cfg?.official_url ?? ''}`,
-      )
+      await sendText(instance!, numberClean, openNowMessage(String(cfg?.official_url ?? '')))
       await supabase.from('australia_whv_subscribers').update({ notified_at: nowISO }).eq('phone', phone)
     }
   }
 
   // ── E-mail de boas-vindas (Resend) ──────────────────────────────────────────
-  await sendWelcomeEmail(email, nome, appUrl, numberClean)
+  await sendWelcomeEmail(email, nome, appUrl, numberClean, added)
 
   // ── Registro no Hub (cliente + assinatura + saas) ───────────────────────────
   const hub = await registerHub(phone, nome, email, numberClean)
