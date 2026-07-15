@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Bell, CheckCircle2, Globe, MessageCircle, Shield, Zap, Clock, X, Check, Instagram, Users } from 'lucide-react'
 import { Logo } from '../../../components/Logo'
 import { PhoneInput } from '../../../components/PhoneInput'
@@ -7,6 +8,7 @@ import { DEFAULT_COUNTRY, toE164, type Country } from '../../../lib/countries'
 import { usePlan, cicloLabel } from '../../../lib/plan'
 import { usePublicConfig } from '../../../lib/publicConfig'
 import { whatsappUrl } from '../../../lib/contact'
+import { supabase } from '../../../lib/supabase'
 
 const POOL  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
@@ -186,17 +188,34 @@ function instagramHref(value?: string | null) {
   return `https://instagram.com/${clean}`
 }
 
+function useLandingPublicStatus() {
+  return useQuery<{ group_member_count: number | null }>({
+    queryKey: ['landing_public_status'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('australia_whv_public_status')
+        .select('group_member_count')
+        .maybeSingle()
+      if (error) throw error
+      return data as { group_member_count: number | null }
+    },
+    refetchInterval: 20_000,
+  })
+}
+
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export function LandingPage() {
   const navigate   = useNavigate()
   const { data: plan } = usePlan()
   const { data: publicConfig } = usePublicConfig()
+  const { data: landingStatus } = useLandingPublicStatus()
   const periodo    = cicloLabel(plan.ciclo).replace(/^por\s+/, '/ ')  // 'anual' → '/ ano'
   const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY)
   const [phone, setPhone] = useState('')
   const lastCheck  = useLastCheck()
   const supportHref = whatsappUrl(publicConfig?.support_whatsapp_number, publicConfig?.support_default_message)
   const instagramUrl = instagramHref(publicConfig?.instagram_url)
+  const groupCount = Number(landingStatus?.group_member_count ?? 0)
   useScrollReveal()
 
   return (
@@ -230,15 +249,16 @@ export function LandingPage() {
       <section className="lp-hero">
         <div className="lp-hero-badge">
           <span className="pulse-dot" />
-          Monitoramento ativo agora
+          {groupCount > 0 ? `${groupCount} pessoas no grupo de alertas` : 'Grupo de alertas ativo agora'}
         </div>
         <h1 className="lp-hero-title">
-          Não perca a vaga WHV<br />
-          <span className="lp-accent">por estar dormindo.</span>
+          Receba alerta quando o visto<br />
+          <span className="lp-accent">Work and Holiday abrir.</span>
         </h1>
         <p className="lp-hero-sub">
-          As vagas surgem sem aviso e somem em minutos. O Monitor WHV te avisa
-          no WhatsApp assim que aparecer uma vaga para o Brasil — a qualquer hora.
+          O Work and Holiday Visa da Austrália tem cotas limitadas para brasileiros.
+          Acompanhamos o site oficial 24h e avisamos no WhatsApp assim que houver
+          mudança de status para o Brasil.
         </p>
       </section>
 
@@ -270,7 +290,7 @@ export function LandingPage() {
                   ? { state: { phone: toE164(country.code, digits), phoneDigits: digits, countryIso: country.iso } }
                   : undefined)
               }}>
-              Quero ser notificado — {plan.priceLabel}
+              Quero receber alertas - {plan.priceLabel}
             </button>
           </div>
           <p className="lp-card-fine">Assinatura anual · Cancele quando quiser</p>
@@ -281,20 +301,21 @@ export function LandingPage() {
       <section className="lp-urgency">
         <div className="lp-urgency-wrap">
           <div className="lp-section-label" data-reveal>O que está em jogo</div>
-          <h2 data-reveal style={{ transitionDelay: '80ms' }}>Vagas esgotam em menos de 2 horas</h2>
+          <h2 data-reveal style={{ transitionDelay: '80ms' }}>Quando a cota abre, cada minuto conta</h2>
           <p className="lp-urgency-p" data-reveal style={{ transitionDelay: '160ms' }}>
-            Em 2023, as vagas WHV do Brasil foram preenchidas em 1h47min.
-            Quem não recebeu alerta perdeu a chance — e esperou mais um ano inteiro.
+            O Work and Holiday Visa, também chamado de WHV, permite que brasileiros
+            viagem e trabalhem legalmente na Austrália por um período limitado.
+            Como as vagas são por cota, quem descobre tarde pode perder a janela.
           </p>
           <div className="lp-compare">
             <div className="lp-cmp bad" data-reveal style={{ transitionDelay: '240ms' }}>
               <div className="lp-cmp-head">❌ Sem o Monitor WHV</div>
               <div className="lp-cmp-list">
                 {[
-                  'Acorda sem saber que as vagas já abriram e fecharam',
-                  'Acessa o site e vê "no places available"',
-                  'Mais 12 meses esperando a próxima abertura',
-                  'Fica monitorando manualmente o tempo todo, sem garantia',
+                  'Depende de grupos e boatos para saber se a cota abriu',
+                  'Precisa entrar no site oficial várias vezes por dia',
+                  'Pode descobrir tarde e encontrar "no places available"',
+                  'Perde tempo monitorando manualmente, inclusive de madrugada',
                 ].map(t => (
                   <div key={t} className="lp-cmp-item">
                     <X size={14} style={{ color: 'var(--red)', flexShrink: 0, marginTop: 2 }} />
@@ -307,10 +328,10 @@ export function LandingPage() {
               <div className="lp-cmp-head">✅ Com o Monitor WHV</div>
               <div className="lp-cmp-list">
                 {[
-                  'Notificação no WhatsApp em segundos após a abertura',
-                  'Link direto para o site oficial — sem precisar pesquisar',
-                  'Aplica entre os primeiros — antes das vagas acabarem',
-                  'Dorme tranquilo. Sistema trabalha 24h no seu lugar',
+                  'Alerta no WhatsApp quando houver mudança no site oficial',
+                  'Link direto para a página certa, sem precisar pesquisar',
+                  'Painel para conferir status, acesso e grupo de alertas',
+                  'Monitoramento 24h para você não ficar atualizando página',
                 ].map(t => (
                   <div key={t} className="lp-cmp-item">
                     <Check size={14} style={{ color: 'var(--green)', flexShrink: 0, marginTop: 2 }} />
@@ -328,9 +349,9 @@ export function LandingPage() {
         <h2 className="section-title" data-reveal>Como funciona</h2>
         <div className="steps">
           {[
-            { icon: <Globe size={24} strokeWidth={1.75} />,        title: 'Monitoramento automático', desc: 'Verificamos o site oficial australiano minuto a minuto, 24h por dia.', d: '0ms' },
-            { icon: <Zap size={24} strokeWidth={1.75} />,          title: 'Detecção em segundos',    desc: 'Assim que a vaga aparece, nosso sistema identifica e dispara o alerta.', d: '120ms' },
-            { icon: <MessageCircle size={24} strokeWidth={1.75} />, title: 'WhatsApp na hora',        desc: 'Link direto para o site oficial. Você aplica antes de todo mundo.', d: '240ms' },
+            { icon: <Globe size={24} strokeWidth={1.75} />,        title: 'Você cadastra seu WhatsApp', desc: 'Confirme o número antes do pagamento para garantir que o alerta chega no canal certo.', d: '0ms' },
+            { icon: <Zap size={24} strokeWidth={1.75} />,          title: 'A gente monitora o site oficial', desc: 'O sistema verifica a página do governo australiano em ciclos curtos, dia e noite.', d: '120ms' },
+            { icon: <MessageCircle size={24} strokeWidth={1.75} />, title: 'Você recebe o alerta', desc: 'Quando o status mudar, o grupo recebe a mensagem com o caminho para aplicar.', d: '240ms' },
           ].map((s, i) => (
             <>
               {i > 0 && <div key={`a${i}`} className="step-arrow" data-reveal style={{ transitionDelay: `${i * 120 - 60}ms` }}>→</div>}
@@ -349,12 +370,12 @@ export function LandingPage() {
         <h2 className="section-title" data-reveal>Por que o Monitor WHV?</h2>
         <div className="features">
           {[
-            { icon: <Clock size={20} strokeWidth={1.75} />,        title: 'Minuto a minuto',  desc: 'Mais rápido que qualquer monitoramento manual. Nunca para.' },
-            { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp direto',   desc: 'Sem app novo. Alerta no mesmo app que você já usa todo dia.' },
-            { icon: <Globe size={20} strokeWidth={1.75} />,         title: 'Fonte oficial',     desc: 'Monitoramos direto o immi.homeaffairs.gov.au — nada de intermediários.' },
-            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />,  title: 'Assinatura anual',  desc: 'Um ano de alertas. Cancele quando quiser, sem multa.' },
-            { icon: <Shield size={20} strokeWidth={1.75} />,        title: 'Só o número',       desc: 'Sem cadastro longo. Sem dados bancários armazenados.' },
-            { icon: <Bell size={20} strokeWidth={1.75} />,          title: 'Painel online',     desc: 'Acompanhe o status atual e histórico de verificações em tempo real.' },
+            { icon: <Clock size={20} strokeWidth={1.75} />,        title: 'Vigilância 24h', desc: 'Ideal para quem não pode ficar acordado ou atualizando página o dia inteiro.' },
+            { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp direto', desc: 'Sem app novo. O alerta chega onde você já acompanha suas mensagens.' },
+            { icon: <Globe size={20} strokeWidth={1.75} />,         title: 'Fonte oficial', desc: 'Monitoramos a página pública do governo australiano, não rumores de internet.' },
+            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />,  title: 'Acesso por um ano', desc: 'Sua assinatura cobre o período contratado e pode ser gerenciada no painel.' },
+            { icon: <Shield size={20} strokeWidth={1.75} />,        title: 'Cadastro enxuto', desc: 'Para comprar você informa o essencial: nome, WhatsApp e pagamento.' },
+            { icon: <Bell size={20} strokeWidth={1.75} />,          title: 'Painel do assinante', desc: 'Confira status atual, grupo de alertas, validade e suporte em um lugar só.' },
           ].map((f, i) => (
             <div key={f.title} className="feature-card" data-reveal style={{ transitionDelay: `${(i % 3) * 100}ms` }}>
               <div className="feature-icon">{f.icon}</div>
@@ -374,9 +395,9 @@ export function LandingPage() {
         </p>
         <div className="lp-trust-grid">
           {[
-            { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: 'WhatsApp confirmado', desc: 'Antes de pagar, voce confirma o numero com um codigo enviado pelo WhatsApp.' },
-            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />, title: 'Painel liberado', desc: 'Com o pagamento aprovado, o login usa codigo no mesmo numero cadastrado.' },
-            { icon: <Users size={20} strokeWidth={1.75} />, title: 'Grupo com fallback', desc: 'Se a entrada automatica no grupo falhar, o painel mostra convite e suporte.' },
+            { icon: <MessageCircle size={20} strokeWidth={1.75} />, title: '1. Confirme seu WhatsApp', desc: 'Você informa o número, recebe um código e valida que consegue receber mensagens.' },
+            { icon: <CheckCircle2 size={20} strokeWidth={1.75} />, title: '2. Pague com segurança', desc: 'Depois do pagamento aprovado, o acesso ao painel fica liberado no mesmo número.' },
+            { icon: <Users size={20} strokeWidth={1.75} />, title: '3. Entre no grupo', desc: 'O painel mostra sua situação no grupo de alertas e o convite caso precise entrar manualmente.' },
           ].map((item, i) => (
             <div className="feature-card" key={item.title} data-reveal style={{ transitionDelay: `${i * 100}ms` }}>
               <div className="feature-icon">{item.icon}</div>
@@ -393,12 +414,12 @@ export function LandingPage() {
         <div className="pricing-card" data-reveal style={{ transitionDelay: '80ms' }}>
           <div className="pricing-badge">Assinatura anual</div>
           <div className="pricing-price">{plan.priceLabel} <span className="pricing-per">{periodo}</span></div>
-          <p className="pricing-desc">Um ano de monitoramento. Cancele quando quiser.</p>
+          <p className="pricing-desc">Um ano de monitoramento, alerta em grupo e acesso ao painel do assinante.</p>
           <ul className="pricing-list">
-            <li><CheckCircle2 size={16} /> Alertas WhatsApp ilimitados</li>
-            <li><CheckCircle2 size={16} /> Acesso ao painel de status</li>
-            <li><CheckCircle2 size={16} /> Verificação minuto a minuto</li>
-            <li><CheckCircle2 size={16} /> Monitoramento 24h por dia</li>
+            <li><CheckCircle2 size={16} /> Validação do WhatsApp antes do pagamento</li>
+            <li><CheckCircle2 size={16} /> Grupo de alertas com status oficial</li>
+            <li><CheckCircle2 size={16} /> Painel para acompanhar acesso e suporte</li>
+            <li><CheckCircle2 size={16} /> Monitoramento 24h durante a assinatura</li>
           </ul>
           <button className="btn-primary-lg" onClick={() => navigate('/comprar')}>Começar agora</button>
         </div>
@@ -421,7 +442,7 @@ export function LandingPage() {
             </a>
           )}
           {instagramUrl && (
-            <a className="btn-outline lp-contact-btn" href={instagramUrl} target="_blank" rel="noopener noreferrer">
+            <a className="btn-outline lp-contact-btn lp-instagram-btn" href={instagramUrl} target="_blank" rel="noopener noreferrer">
               <Instagram size={16} /> Instagram
             </a>
           )}

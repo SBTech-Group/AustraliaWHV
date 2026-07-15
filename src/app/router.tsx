@@ -11,6 +11,7 @@ import {
   AdminLoginPage,
   AdminPage,
   TermosPage,
+  NotFoundPage,
 } from '../modules/monitor'
 
 export function AppRouter() {
@@ -47,6 +48,7 @@ export function AppRouter() {
           </AdminRoute>
         }
       />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
 }

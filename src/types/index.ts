@@ -10,6 +10,7 @@ export interface MonitorStatus {
   country_name: string
   official_url: string
   check_interval_minutes: number
+  group_member_count?: number | null
 }
 
 export interface MonitorLog {

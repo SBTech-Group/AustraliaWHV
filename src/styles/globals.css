@@ -864,6 +864,17 @@ input { font-family: inherit; }
   min-width: 190px;
   justify-content: center;
 }
+.lp .lp-instagram-btn {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #f58529 0%, #dd2a7b 42%, #8134af 72%, #515bd4 100%);
+  box-shadow: 0 10px 24px rgba(221,42,123,0.18);
+}
+.lp .lp-instagram-btn:hover {
+  color: #fff;
+  border-color: transparent;
+  filter: brightness(1.05);
+}
 
 /* RESPONSIVE */
 @media (max-width: 720px) {
@@ -959,6 +970,71 @@ input { font-family: inherit; }
   flex-direction: column;
   gap: 20px;
 }
+.monitor-main-wide { max-width: 920px; }
+.monitor-hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+}
+.monitor-hero-title {
+  font-size: clamp(24px, 4vw, 38px);
+  line-height: 1.08;
+  margin: 0;
+  letter-spacing: 0;
+}
+.monitor-hero-copy {
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 10px 0 0;
+  max-width: 560px;
+}
+.monitor-hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.monitor-hero-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.monitor-hero-status small { color: var(--fg-3); font-size: 12px; }
+.monitor-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.monitor-info-card .status-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.monitor-info-main {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 6px 0 14px;
+}
+.monitor-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.monitor-info-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.monitor-info-list strong {
+  color: var(--fg-1);
+  font-weight: 600;
+  text-align: right;
+}
 
 .status-card {
   background: var(--surface);
@@ -1009,6 +1085,9 @@ input { font-family: inherit; }
 .cron-next small { color: var(--fg-3); font-size: 12px; }
 
 @media (max-width: 560px) {
+  .monitor-hero-card,
+  .monitor-grid-2 { grid-template-columns: 1fr; }
+  .monitor-hero-status { align-items: flex-start; }
   .access-card-row { flex-direction: column; align-items: flex-start; }
   .access-actions { justify-content: flex-start; }
   .plan-state-row { flex-direction: column; }

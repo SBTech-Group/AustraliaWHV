@@ -26,6 +26,15 @@ const DET: Record<DetectedStatus, { label: string; c: string }> = {
 }
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
 
+type AdminTab = 'operacao' | 'contato' | 'grupo' | 'assinantes' | 'logs'
+const ADMIN_TABS: Array<{ id: AdminTab; label: string }> = [
+  { id: 'operacao', label: 'Operação' },
+  { id: 'contato', label: 'Contato' },
+  { id: 'grupo', label: 'Grupo' },
+  { id: 'assinantes', label: 'Assinantes' },
+  { id: 'logs', label: 'Logs' },
+]
+
 export function AdminPage() {
   const navigate = useNavigate()
   const { data, isLoading } = useAdminConfig()
@@ -34,6 +43,7 @@ export function AdminPage() {
   const action = useAdminAction()
   const config = data?.config
   const stats = data?.stats
+  const [tab, setTab] = useState<AdminTab>('operacao')
 
   const [form, setForm] = useState({
     enabled: false,
@@ -144,7 +154,7 @@ export function AdminPage() {
       active: s.active,
       access_expires_at: s.access_expires_at,
     }, 'Assinante removido do grupo', 'Removendo do grupo...')
-    }
+  }
   const overdueCount = subscribers.filter((s) => s.active && s.overdue).length
 
   const detected = (config?.last_detected_status ?? 'Unknown') as DetectedStatus
@@ -199,6 +209,25 @@ export function AdminPage() {
           <span>Aberto desde: {fmt(config?.opened_at)}</span>
         </div>
 
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {ADMIN_TABS.map((item) => (
+            <button
+              key={item.id}
+              style={{
+                ...S.btn,
+                height: 34,
+                background: tab === item.id ? '#26372f' : '#151515',
+                borderColor: tab === item.id ? 'rgba(79,203,142,0.45)' : '#2a2a2a',
+                color: tab === item.id ? '#fff' : '#b8b8b8',
+              }}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'operacao' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
           {/* Config */}
           <div style={S.card}>
@@ -224,7 +253,15 @@ export function AdminPage() {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
-                onClick={() => run({ action: 'save_config', payload: form }, 'Config salva', 'Salvando…')}>
+                onClick={() => run({
+                  action: 'save_config',
+                  payload: {
+                    enabled: form.enabled,
+                    check_interval_minutes: form.check_interval_minutes,
+                    whatsapp_instance_name: form.whatsapp_instance_name,
+                    country_name: form.country_name,
+                  },
+                }, 'Config salva', 'Salvando…')}>
                 <Save size={15} strokeWidth={1.75} /> Salvar
               </button>
               <button style={S.btn} disabled={action.isPending}
@@ -265,8 +302,10 @@ export function AdminPage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Contato */}
+        {tab === 'contato' && (
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: '0 0 16px', fontSize: 15 }}>Contato</h2>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -281,34 +320,23 @@ export function AdminPage() {
                 onChange={(e) => setForm((f) => ({ ...f, instagram_url: e.target.value }))} />
             </div>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Mensagem padrao do suporte WhatsApp</label>
-            <input style={S.input} value={form.support_default_message}
-              onChange={(e) => setForm((f) => ({ ...f, support_default_message: e.target.value }))} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={S.label}>Texto de confianca da landing</label>
-            <input style={S.input} value={form.landing_trust_text}
-              onChange={(e) => setForm((f) => ({ ...f, landing_trust_text: e.target.value }))} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-            <div>
-              <label style={S.label}>Texto de contato</label>
-              <textarea style={S.textarea} value={form.contact_text}
-                onChange={(e) => setForm((f) => ({ ...f, contact_text: e.target.value }))} />
-            </div>
-            <div>
-              <label style={S.label}>Texto institucional</label>
-              <textarea style={S.textarea} value={form.about_body}
-                onChange={(e) => setForm((f) => ({ ...f, about_body: e.target.value }))} />
-            </div>
+          <div style={{ color: '#888', fontSize: 12, marginBottom: 14 }}>
+            Esta aba altera apenas os canais públicos exibidos na landing page.
           </div>
           <button style={{ ...S.btn, ...S.btnPrimary }} disabled={action.isPending}
-            onClick={() => run({ action: 'save_config', payload: form }, 'Contato salvo', 'Salvando...')}>
+            onClick={() => run({
+              action: 'save_config',
+              payload: {
+                support_whatsapp_number: form.support_whatsapp_number,
+                instagram_url: form.instagram_url,
+              },
+            }, 'Contato salvo', 'Salvando...')}>
             <Save size={15} strokeWidth={1.75} /> Salvar contato
           </button>
         </div>
+        )}
         {/* Grupo de alertas */}
+        {tab === 'grupo' && (
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: '0 0 16px', fontSize: 15 }}><Users size={15} strokeWidth={1.75} style={{ verticalAlign: 'middle', marginRight: 6, color: '#4FCB8E' }} />Grupo de alertas (WhatsApp)</h2>
           <div style={{ fontSize: 13, marginBottom: 12 }}>
@@ -338,8 +366,10 @@ export function AdminPage() {
             <button style={S.btn} disabled={action.isPending} onClick={syncGroup}><RefreshCw size={15} strokeWidth={1.75} /> Sincronizar grupo</button>
           </div>
         </div>
+        )}
 
         {/* Assinantes */}
+        {tab === 'assinantes' && (
         <div style={{ ...S.card, marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <div>
@@ -392,7 +422,9 @@ export function AdminPage() {
             </div>
           )}
         </div>
+        )}
         {/* Logs */}
+        {tab === 'logs' && (
         <div style={S.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 15 }}>Logs (últimos 100)</h2>
@@ -420,6 +452,7 @@ export function AdminPage() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {connectOpen && <ConnectOverlay onClose={() => setConnectOpen(false)} />}
