@@ -36,13 +36,21 @@ Deno.serve(async (req) => {
       return new Response('ok', { headers: corsHeaders })   // evento irrelevante — ignora
     }
 
+    const mpAccessToken = (Deno.env.get('MP_ACCESS_TOKEN') ?? '').trim()
+    if (!mpAccessToken) {
+      await wlog('error', 'Webhook: MP_ACCESS_TOKEN nao configurado.')
+      return new Response('MP not configured', { status: 503, headers: corsHeaders })
+    }
+
     // Consulta o pagamento no MP para verificar status e obter phone
     const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: { Authorization: `Bearer ${Deno.env.get('MP_ACCESS_TOKEN')!}` },
+      headers: { Authorization: `Bearer ${mpAccessToken}` },
     })
     if (!res.ok) {
-      await wlog('error', `Falha ao consultar pagamento ${paymentId} no MP.`, { http_status: res.status })
-      return new Response('MP fetch failed', { status: 502 })
+      let mpError: unknown = null
+      try { mpError = await res.json() } catch { /* MP pode responder texto */ }
+      await wlog('error', `Falha ao consultar pagamento ${paymentId} no MP.`, { http_status: res.status, mp_error: mpError })
+      return new Response('MP fetch failed', { status: res.status === 401 || res.status === 403 ? 503 : 502, headers: corsHeaders })
     }
 
     const payment = await res.json() as {

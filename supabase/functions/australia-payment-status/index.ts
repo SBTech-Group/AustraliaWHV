@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     // (cobre o caso do webhook do MP não chegar / falhar.)
     const notYetActive = !active || (accessExpiresAt != null && new Date(accessExpiresAt) <= new Date())
     if (notYetActive && data?.payment_id) {
-      const token = Deno.env.get('MP_ACCESS_TOKEN')
+      const token = (Deno.env.get('MP_ACCESS_TOKEN') ?? '').trim()
       if (token) {
         try {
           const mp = await fetch(`https://api.mercadopago.com/v1/payments/${data.payment_id}`, {
@@ -67,6 +67,14 @@ Deno.serve(async (req) => {
                 .maybeSingle()
               accessExpiresAt = fresh?.access_expires_at ?? accessExpiresAt
             }
+          } else {
+            await supabase.from('australia_whv_monitor_logs').insert({
+              level: 'error',
+              action: 'payment_status',
+              message: 'Falha ao consultar pagamento no Mercado Pago.',
+              details: { payment_id: data.payment_id },
+              http_status: mp.status,
+            }).then(() => {}, () => {})
           }
         } catch (e) {
           console.error('payment-status MP check', e)
