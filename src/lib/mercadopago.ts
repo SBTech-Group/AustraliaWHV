@@ -1,7 +1,7 @@
 // Loader do SDK v2 do Mercado Pago (Checkout Bricks).
 // Carregado sob demanda — só na tela de pagamento.
 
-const PUBLIC_KEY = import.meta.env.VITE_MP_PUBLIC_KEY as string
+const PUBLIC_KEY = String(import.meta.env.VITE_MP_PUBLIC_KEY ?? '').replace(/\s+#.*$/, '').trim()
 
 let instance: Promise<MercadoPagoInstance> | null = null
 

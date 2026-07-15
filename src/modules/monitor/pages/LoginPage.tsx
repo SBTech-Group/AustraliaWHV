@@ -9,6 +9,17 @@ import { DEFAULT_COUNTRY, toE164, type Country } from '../../../lib/countries'
 
 type Step = 'phone' | 'otp'
 
+async function serverErrMsg(error: unknown, fallback: string): Promise<string> {
+  const ctx = (error as { context?: Response })?.context
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.json()
+      if (body?.error) return String(body.error)
+    } catch { /* corpo nao-JSON */ }
+  }
+  return (error as { message?: string })?.message ?? fallback
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
@@ -32,7 +43,8 @@ export function LoginPage() {
       const { data, error } = await supabase.functions.invoke('australia-send-otp', {
         body: { phone: fullPhone },
       })
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Erro ao enviar código')
+      if (error) throw new Error(await serverErrMsg(error, 'Erro ao enviar código'))
+      if (data?.error) throw new Error(data.error)
       toast.success('Código enviado! Verifique seu WhatsApp.')
       setStep('otp')
     } catch (err) {
@@ -53,7 +65,8 @@ export function LoginPage() {
       const { data, error } = await supabase.functions.invoke('australia-verify-otp', {
         body: { phone: fullPhone, code: otp },
       })
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Código inválido ou expirado')
+      if (error) throw new Error(await serverErrMsg(error, 'Código inválido ou expirado'))
+      if (data?.error) throw new Error(data.error)
       await login(data.session_token as string)
       navigate('/monitor')
     } catch (err) {

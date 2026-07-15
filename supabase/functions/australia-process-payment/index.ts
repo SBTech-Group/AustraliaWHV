@@ -7,6 +7,48 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+type DB = ReturnType<typeof createClient>
+
+async function monitorLog(
+  supabase: DB,
+  level: 'info' | 'success' | 'warning' | 'error',
+  message: string,
+  details: Record<string, unknown> = {},
+  http_status?: number,
+) {
+  await supabase
+    .from('australia_whv_monitor_logs')
+    .insert({ level, action: 'payment', message, details, http_status: http_status ?? null })
+    .then(() => {}, () => {})
+}
+
+function sanitizeMpError(payment: Record<string, unknown>) {
+  const cause = Array.isArray(payment.cause)
+    ? payment.cause.map((c) => {
+        const item = c as Record<string, unknown>
+        return { code: item.code, description: item.description }
+      })
+    : undefined
+  return {
+    message: payment.message,
+    error: payment.error,
+    status: payment.status,
+    status_detail: payment.status_detail,
+    cause,
+  }
+}
+
+function publicPaymentError(status: number, payment: Record<string, unknown>) {
+  const msg = String(payment.message ?? payment.error ?? '').toLowerCase()
+  if (status === 401 || status === 403 || msg.includes('invalid credentials')) {
+    return 'Pagamento temporariamente indisponivel. Fale com o suporte para finalizar a assinatura.'
+  }
+  if (status === 400) {
+    return 'Nao foi possivel validar os dados do pagamento. Revise os dados e tente novamente.'
+  }
+  return 'Erro ao processar pagamento. Tente novamente em instantes.'
+}
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -34,9 +76,14 @@ Deno.serve(async (req) => {
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) return json({ error: 'email inválido' }, 400)
     if (!formData) return json({ error: 'formData obrigatório' }, 400)
 
-    const mpAccessToken = Deno.env.get('MP_ACCESS_TOKEN')!
+    const mpAccessToken = (Deno.env.get('MP_ACCESS_TOKEN') ?? '').trim()
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+    if (!mpAccessToken) {
+      await monitorLog(supabase, 'error', 'MP_ACCESS_TOKEN nao configurado.')
+      return json({ error: 'Pagamento temporariamente indisponivel. Fale com o suporte para finalizar a assinatura.' }, 503)
+    }
 
     // Bloqueia recompra: quem já tem acesso ativo (e não expirado) não paga de novo.
     const { data: existing } = await supabase
@@ -112,8 +159,10 @@ Deno.serve(async (req) => {
     }
 
     if (!res.ok || !payment.id) {
-      console.error('MP payment error:', JSON.stringify(payment))
-      return json({ error: payment.message ?? 'Erro ao processar pagamento' }, 502)
+      const safeError = sanitizeMpError(payment as Record<string, unknown>)
+      console.error('MP payment error:', JSON.stringify({ http_status: res.status, ...safeError }))
+      await monitorLog(supabase, 'error', 'Falha ao criar pagamento no Mercado Pago.', { mp: safeError, method: selectedPaymentMethod }, res.status)
+      return json({ error: publicPaymentError(res.status, payment as Record<string, unknown>) }, res.status === 401 || res.status === 403 ? 503 : 502)
     }
 
     // Rastreia o assinante como pending — a ativação definitiva ocorre no webhook.

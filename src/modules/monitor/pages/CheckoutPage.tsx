@@ -101,7 +101,8 @@ export function CheckoutPage() {
       const { data, error } = await supabase.functions.invoke('australia-send-otp', {
         body: { phone: fullPhone, purpose: 'checkout' },
       })
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Erro ao enviar codigo')
+      if (error) throw new Error(await serverErrMsg(error, 'Erro ao enviar código'))
+      if (data?.error) throw new Error(data.error)
       setOtpSent(true)
       setOtp('')
       toast.success('Codigo enviado no WhatsApp.')
@@ -122,7 +123,8 @@ export function CheckoutPage() {
       const { data, error } = await supabase.functions.invoke('australia-verify-otp', {
         body: { phone: fullPhone, code: otp, purpose: 'checkout' },
       })
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Codigo invalido ou expirado')
+      if (error) throw new Error(await serverErrMsg(error, 'Código inválido ou expirado'))
+      if (data?.error) throw new Error(data.error)
       const token = data?.checkout_verification_token as string | undefined
       if (!token) throw new Error('Nao foi possivel confirmar o WhatsApp.')
       setCheckoutVerificationToken(token)
@@ -232,7 +234,13 @@ export function CheckoutPage() {
         })
       })
       .then(controller => { if (controller) brickRef.current = controller })
-      .catch((err: Error) => { toast.error(err.message); mountedRef.current = false })
+      .catch((err: Error) => {
+        const message = /invalid credentials/i.test(err.message)
+          ? 'Pagamento temporariamente indisponível. Fale com o suporte para finalizar a assinatura.'
+          : err.message
+        toast.error(message)
+        mountedRef.current = false
+      })
 
     return () => {
       cancelled = true
