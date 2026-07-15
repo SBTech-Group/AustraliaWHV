@@ -26,6 +26,17 @@ const DET: Record<DetectedStatus, { label: string; c: string }> = {
 }
 const fmt = (s: string | null | undefined) => (s ? new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
 
+function logDetailsSummary(details: Record<string, unknown> | null | undefined) {
+  if (!details) return ''
+  const send = details.send && typeof details.send === 'object' ? details.send as Record<string, unknown> : null
+  const parts = [
+    send?.status ? `send=${send.status}` : '',
+    send?.message_id ? `id=${send.message_id}` : '',
+    send?.remote_jid ? `jid=${send.remote_jid}` : '',
+  ].filter(Boolean)
+  return parts.join(' | ')
+}
+
 function groupStateLabel(s: { in_group: boolean; group_access_status?: string | null }) {
   if (s.in_group || s.group_access_status === 'active') return { label: 'No grupo', color: '#4FCB8E' }
   if (s.group_access_status === 'invite_sent') return { label: 'Convite enviado', color: '#E2BE6A' }
@@ -109,6 +120,21 @@ export function AdminPage() {
   async function run(body: Record<string, unknown>, ok: string, busy = 'Processando…') {
     try { toast.info(busy); await action.mutateAsync(body); toast.success(ok) }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha') }
+  }
+  async function sendTest() {
+    try {
+      toast.info('Enviando teste...')
+      const res = (await action.mutateAsync({ action: 'send_test', number: testNumber })) as {
+        status?: string
+        message_id?: string | null
+        note?: string | null
+      }
+      const status = res.status ? ` (${res.status})` : ''
+      toast.success(`Teste aceito pela Evolution${status}`)
+      if (res.note) toast.info(res.note)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha')
+    }
   }
   const logout = async () => { await supabase.auth.signOut(); navigate('/admin/login', { replace: true }) }
 
@@ -284,7 +310,7 @@ export function AdminPage() {
               <input style={{ ...S.input, flex: 1 }} placeholder="Número teste (5511...)" value={testNumber}
                 onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ''))} />
               <button style={S.btn} disabled={action.isPending || !testNumber}
-                onClick={() => run({ action: 'send_test', number: testNumber }, 'Teste enviado', 'Enviando…')}>
+                onClick={sendTest}>
                 <Send size={15} strokeWidth={1.75} /> Testar
               </button>
             </div>
@@ -301,6 +327,7 @@ export function AdminPage() {
             <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'create_instance' }, 'Instância criada/reconciliada', 'Criando…')}><Plug size={15} strokeWidth={1.75} /> Criar / reconciliar</button>
               <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'state_instance' }, 'Status atualizado', 'Atualizando…')}><RefreshCw size={15} strokeWidth={1.75} /> Atualizar status</button>
+              <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'restart_instance' }, 'Instancia reiniciada', 'Reiniciando...')}><RefreshCw size={15} strokeWidth={1.75} /> Reiniciar</button>
               <button style={{ ...S.btn, ...S.btnPrimary }} onClick={() => setConnectOpen(true)}><QrCode size={15} strokeWidth={1.75} /> Conectar</button>
               <button style={S.btn} disabled={action.isPending} onClick={() => run({ action: 'logout_instance' }, 'Desconectada', 'Desconectando…')}><Unplug size={15} strokeWidth={1.75} /> Desconectar</button>
               <button style={{ ...S.btn, color: '#F26D70' }} disabled={action.isPending}
@@ -460,7 +487,7 @@ export function AdminPage() {
               <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ color: '#888', textAlign: 'left' }}>
                   <th style={{ padding: '6px 8px' }}>Data/hora</th><th style={{ padding: '6px 8px' }}>Nível</th>
-                  <th style={{ padding: '6px 8px' }}>Ação</th><th style={{ padding: '6px 8px' }}>Status</th><th style={{ padding: '6px 8px' }}>Mensagem</th>
+                  <th style={{ padding: '6px 8px' }}>Ação</th><th style={{ padding: '6px 8px' }}>Status</th><th style={{ padding: '6px 8px' }}>HTTP</th><th style={{ padding: '6px 8px' }}>Mensagem</th><th style={{ padding: '6px 8px' }}>Detalhes</th>
                 </tr></thead>
                 <tbody>
                   {logs.map((l) => (
@@ -469,7 +496,9 @@ export function AdminPage() {
                       <td style={{ padding: '6px 8px', color: { success: '#4FCB8E', warning: '#E2BE6A', error: '#F26D70', info: '#7DA0E8' }[l.level] ?? '#888' }}>{l.level}</td>
                       <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{l.action}</td>
                       <td style={{ padding: '6px 8px' }}>{l.detected_status ?? '—'}</td>
+                      <td style={{ padding: '6px 8px' }}>{l.http_status ?? '—'}</td>
                       <td style={{ padding: '6px 8px' }}>{l.message}</td>
+                      <td style={{ padding: '6px 8px', color: '#9a9a9a', fontFamily: 'monospace', maxWidth: 360, overflowWrap: 'anywhere' }}>{logDetailsSummary(l.details)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -13,7 +13,17 @@
 // Deploy: supabase functions deploy australia-monitor --no-verify-jwt
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { fetchGroups, groupInviteUrl, addParticipants, removeParticipants, sendText } from '../_shared/evolution.ts'
+import {
+  addParticipants,
+  checkWhatsappNumbers,
+  fetchGroups,
+  findMessages,
+  groupInviteUrl,
+  removeParticipants,
+  restartInstance,
+  sendInfo,
+  sendText,
+} from '../_shared/evolution.ts'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -244,7 +254,7 @@ Deno.serve(async (req) => {
     const jid = cfg.whatsapp_group_jid ? String(cfg.whatsapp_group_jid) : ''
     if (!jid) { await log('warning', 'notify', { detected_status: 'Open', message: 'Grupo não configurado — alerta NÃO enviado. Configure o grupo no /admin.' }); return }
     const sent = await sendText(instance, jid, alertMessage(url))
-    if (sent.ok) await log('success', 'notify', { detected_status: 'Open', message: 'Alerta postado no grupo WhatsApp.' })
+    if (sent.ok) await log('success', 'notify', { detected_status: 'Open', message: 'Alerta aceito pela Evolution para o grupo WhatsApp.', http_status: sent.status, details: { send: sendInfo(sent.data), evo: sent.data } })
     else await log('error', 'notify', { detected_status: 'Open', message: 'Falha ao postar alerta no grupo.', http_status: sent.status, details: { evo: sent.data } })
   }
   function runInBackground(p: Promise<unknown>) {
@@ -420,6 +430,21 @@ Deno.serve(async (req) => {
       return json({ status: conn.status })
     }
 
+    if (action === 'restart_instance') {
+      const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
+      const evo = await restartInstance(instance)
+      const raw = evo.data as Record<string, any>
+      const rawState = String(raw?.instance?.state ?? raw?.state ?? 'unknown')
+      const status = mapEvoStatus(rawState)
+      await patchConfig({ whatsapp_status: status, whatsapp_last_checked_at: new Date().toISOString() })
+      if (!evo.ok) {
+        await log('error', 'whatsapp_restart', { message: 'Falha ao reiniciar instancia Evolution.', http_status: evo.status, details: { evo: evo.data } })
+        return json({ error: `Evolution: ${JSON.stringify(evo.data)}` }, 502)
+      }
+      await log('info', 'whatsapp_restart', { message: `Instancia "${instance}" reiniciada. Estado: ${status}.`, http_status: evo.status, details: { rawState, evo: evo.data } })
+      return json({ status, rawState })
+    }
+
     if (action === 'logout_instance') {
       const cfg = await getConfig(); const instance = String(cfg.whatsapp_instance_name ?? 'australia_whv_saas')
       await evoFetch(`/instance/logout/${instance}`, { method: 'DELETE' })
@@ -442,10 +467,50 @@ Deno.serve(async (req) => {
       if (!number) return json({ error: 'Informe um número para o teste' }, 400)
       const conn = await connectionState(instance)
       if (conn.status !== 'open') { await log('warning', 'whatsapp_test', { message: `Teste não enviado — WhatsApp ${conn.status}.` }); return json({ error: `WhatsApp não conectado (${conn.status})` }, 409) }
-      const sent = await sendText(instance, number, TEST_MESSAGE)
-      if (!sent.ok) { await log('error', 'whatsapp_test', { message: 'Falha no teste.', http_status: sent.status, details: { evo: sent.data } }); return json({ error: `Evolution: ${JSON.stringify(sent.data)}` }, 502) }
-      await log('success', 'whatsapp_test', { message: `Teste enviado para ${number}.` })
-      return json({ success: true })
+      const checked = await checkWhatsappNumbers(instance, [number])
+      const checkRows = Array.isArray(checked.data) ? checked.data as Record<string, unknown>[] : []
+      const check = checkRows[0] ?? {}
+      if (!checked.ok) {
+        await log('error', 'whatsapp_test', { message: 'Falha ao validar numero na Evolution.', http_status: checked.status, details: { evo: checked.data } })
+        return json({ error: `Evolution: ${JSON.stringify(checked.data)}` }, 502)
+      }
+      if (check.exists === false) {
+        await log('warning', 'whatsapp_test', { message: `Numero nao confirmado no WhatsApp: ${number}.`, http_status: checked.status, details: { whatsapp_check: checked.data } })
+        return json({ error: 'A Evolution nao confirmou este numero como WhatsApp.' }, 422)
+      }
+
+      const sent = await sendText(instance, number, TEST_MESSAGE, { delay: 1200, linkPreview: false })
+      const info = sendInfo(sent.data)
+      if (!sent.ok || !info.message_id) {
+        await log('error', 'whatsapp_test', { message: 'Falha no teste.', http_status: sent.status, details: { whatsapp_check: checked.data, send: info, evo: sent.data } })
+        return json({ error: `Evolution: ${JSON.stringify(sent.data)}` }, 502)
+      }
+
+      let lookup: Record<string, unknown> | null = null
+      if (info.remote_jid || info.message_id) {
+        await sleep(2500)
+        const key: Record<string, unknown> = {}
+        if (info.remote_jid) key.remoteJid = info.remote_jid
+        if (info.message_id) key.id = info.message_id
+        const found = await findMessages(instance, { key })
+        lookup = { ok: found.ok, http_status: found.status, data: found.data }
+      }
+
+      const status = info.status ?? 'ACCEPTED'
+      await log('success', 'whatsapp_test', {
+        message: `Teste aceito pela Evolution para ${number}: ${status}.`,
+        http_status: sent.status,
+        details: { whatsapp_check: checked.data, send: info, lookup, evo: sent.data },
+      })
+      return json({
+        success: true,
+        status,
+        message_id: info.message_id,
+        remote_jid: info.remote_jid,
+        note: status.toUpperCase() === 'PENDING'
+          ? 'A Evolution aceitou/enfileirou a mensagem. A entrega real depende de ACK do WhatsApp.'
+          : null,
+      })
     }
 
     // ── Grupo WhatsApp ─────────────────────────────────────────────────────────

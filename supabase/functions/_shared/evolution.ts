@@ -7,6 +7,13 @@ const apiKey = () => Deno.env.get('EVOLUTION_API_KEY') ?? ''
 
 export interface EvoRes<T = unknown> { ok: boolean; status: number; data: T }
 
+export interface EvoSendInfo {
+  message_id: string | null
+  remote_jid: string | null
+  status: string | null
+  message_type: string | null
+}
+
 export async function evoFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<EvoRes<T>> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 20000)
@@ -34,11 +41,40 @@ export function numberToJid(phone: string): string {
 }
 
 // Envia texto p/ um contato OU grupo (aceita number = '55..' ou '<jid>@g.us').
-export async function sendText(instance: string, numberOrJid: string, text: string) {
+export async function sendText(instance: string, numberOrJid: string, text: string, options: Record<string, unknown> = {}) {
   return await evoFetch(`/message/sendText/${instance}`, {
     method: 'POST',
-    body: JSON.stringify({ number: numberOrJid, text }),
+    body: JSON.stringify({ number: numberOrJid, text, ...options }),
   })
+}
+
+export function sendInfo(data: unknown): EvoSendInfo {
+  const obj = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const key = obj.key && typeof obj.key === 'object' ? obj.key as Record<string, unknown> : {}
+  return {
+    message_id: key.id ? String(key.id) : null,
+    remote_jid: key.remoteJid ? String(key.remoteJid) : null,
+    status: obj.status ? String(obj.status) : null,
+    message_type: obj.messageType ? String(obj.messageType) : null,
+  }
+}
+
+export async function checkWhatsappNumbers(instance: string, numbers: string[]) {
+  return await evoFetch(`/chat/whatsappNumbers/${instance}`, {
+    method: 'POST',
+    body: JSON.stringify({ numbers }),
+  })
+}
+
+export async function findMessages(instance: string, where: Record<string, unknown>) {
+  return await evoFetch(`/chat/findMessages/${instance}`, {
+    method: 'POST',
+    body: JSON.stringify({ where }),
+  })
+}
+
+export async function restartInstance(instance: string) {
+  return await evoFetch(`/instance/restart/${instance}`, { method: 'PUT' })
 }
 
 export interface EvoGroup { jid: string; name: string; size: number }

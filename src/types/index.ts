@@ -20,6 +20,8 @@ export interface MonitorLog {
   action: string
   detected_status: string | null
   message: string
+  http_status: number | null
+  details: Record<string, unknown> | null
   created_at: string
 }
 

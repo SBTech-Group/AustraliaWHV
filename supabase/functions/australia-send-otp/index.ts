@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { sendText } from '../_shared/evolution.ts'
+import { sendInfo, sendText } from '../_shared/evolution.ts'
 import { otpMessage } from '../_shared/onboarding.ts'
 
 const corsHeaders = {
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const numberClean = phone.replace('+', '').replace(/\D/g, '')
     const text = otpMessage(code, purpose)
 
-    const sent = await sendText(String(config.whatsapp_instance_name), numberClean, text)
+    const sent = await sendText(String(config.whatsapp_instance_name), numberClean, text, { delay: 800, linkPreview: false })
 
     if (!sent.ok) {
       await supabase.from('australia_whv_otps').delete().eq('id', insertedOtp.id)
@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
       return json({ error: publicMessageForEvolution(sent.status) }, sent.status === 0 ? 503 : 502)
     }
 
-    await monitorLog(supabase, 'success', `OTP enviado (${purpose}).`, { purpose })
+    await monitorLog(supabase, 'success', `OTP aceito pela Evolution (${purpose}).`, { purpose, send: sendInfo(sent.data), evo: sent.data }, sent.status)
     return json({ ok: true })
   } catch (err) {
     console.error(err)

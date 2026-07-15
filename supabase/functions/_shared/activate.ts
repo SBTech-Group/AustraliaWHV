@@ -5,7 +5,7 @@
 // e-mail de boas-vindas (Resend) e registro no Hub SB Tech. Best-effort nos envios.
 
 import { addCiclo, fetchPlan } from './plan.ts'
-import { addParticipants, sendText } from './evolution.ts'
+import { addParticipants, sendInfo, sendText } from './evolution.ts'
 import { openNowMessage, welcomeMessage } from './onboarding.ts'
 
 // deno-lint-ignore no-explicit-any
@@ -70,6 +70,22 @@ async function registerHub(phone: string, nome: string, email: string, numberCle
   } catch (err) {
     return { ok: false, reason: String(err) }
   }
+}
+
+async function logWhatsappSend(
+  supabase: DB,
+  action: string,
+  phoneDigits: string,
+  sent: Awaited<ReturnType<typeof sendText>>,
+) {
+  const masked = `${phoneDigits.slice(0, 4)}***${phoneDigits.slice(-2)}`
+  await supabase.from('australia_whv_monitor_logs').insert({
+    level: sent.ok ? 'success' : 'warning',
+    action,
+    message: sent.ok ? `WhatsApp aceito pela Evolution para ${masked}.` : `WhatsApp nao enviado para ${masked}.`,
+    http_status: sent.status || null,
+    details: { send: sendInfo(sent.data), evo: sent.data },
+  }).then(() => {}, () => {})
 }
 
 export interface ActivateResult {
@@ -185,9 +201,11 @@ export async function activateSubscriber(supabase: DB, opts: ActivateOpts): Prom
   // ── DM de boas-vindas (WhatsApp) ────────────────────────────────────────────
   const evoOk = !!(Deno.env.get('EVOLUTION_API_URL') && Deno.env.get('EVOLUTION_API_KEY') && instance)
   if (evoOk) {
-    await sendText(instance!, numberClean, welcomeMessage({ addedToGroup: added, groupName: String(cfg?.whatsapp_group_name ?? '') }))
+    const welcome = await sendText(instance!, numberClean, welcomeMessage({ addedToGroup: added, groupName: String(cfg?.whatsapp_group_name ?? '') }), { delay: 1000, linkPreview: false })
+    await logWhatsappSend(supabase, 'welcome_dm', numberClean, welcome)
     if (cfg?.last_detected_status === 'Open') {
-      await sendText(instance!, numberClean, openNowMessage(String(cfg?.official_url ?? '')))
+      const openNow = await sendText(instance!, numberClean, openNowMessage(String(cfg?.official_url ?? '')), { delay: 1000, linkPreview: false })
+      await logWhatsappSend(supabase, 'open_now_dm', numberClean, openNow)
       await supabase.from('australia_whv_subscribers').update({ notified_at: nowISO }).eq('phone', phone)
     }
   }

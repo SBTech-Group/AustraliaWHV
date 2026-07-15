@@ -3,6 +3,7 @@ import {
   findGroupParticipants,
   groupInviteUrl,
   isParticipant,
+  sendInfo,
   sendGroupInvite,
   sendText,
 } from '../_shared/evolution.ts'
@@ -182,7 +183,7 @@ Deno.serve(async (req) => {
 
     let method = 'send_group_invite'
     if (!sent.ok && invite) {
-      sent = await sendText(instance, phoneDigits, groupInviteMessage({ groupName, inviteUrl: invite }))
+      sent = await sendText(instance, phoneDigits, groupInviteMessage({ groupName, inviteUrl: invite }), { delay: 1000, linkPreview: false })
       method = 'send_text_invite'
     }
 
@@ -224,7 +225,7 @@ Deno.serve(async (req) => {
       status: sent.ok ? 'sent' : 'link_returned',
       error_message: sent.ok ? null : 'Envio via Evolution falhou; link liberado no painel.',
       http_status: sent.status || null,
-      details: sent.ok ? {} : { evo: sent.data },
+        details: { send: sendInfo(sent.data), evo: sent.data },
       invite_sent_at: nowISO,
     })
 
@@ -233,7 +234,7 @@ Deno.serve(async (req) => {
       action: 'group_invite',
       message: sent.ok ? 'Convite do grupo enviado ao assinante.' : 'Convite exibido no painel apos falha de envio.',
       http_status: sent.status || null,
-      details: { method },
+      details: { method, send: sendInfo(sent.data), evo: sent.data },
     }).then(() => {}, () => {})
 
     return json({
